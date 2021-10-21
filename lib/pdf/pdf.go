@@ -780,6 +780,35 @@ func Parse(doc []byte) (pdf, error) {
 				case "xref":
 					obj_to_close = AppendCloseObj(obj_to_close, obj{obj_xref{}, line_index + 1, col + 1 + before_token_len})
 				case "trailer", "startxref":
+					// PDF operators
+					// for more information look at lib/pdf/operator.go
+					//NOTE(elias): The tokens below doesn't seems to be necessary when this program
+					// doesn't care to display anything.
+				case "w", "J", "j", "M", "d", "ri", "i", "gs":
+				case "q", "Q", "cm":
+				case "m", "l", "c", "v", "y", "h", "re":
+				case "S", "s", "F", "f*", "B", "B*", "b", "b*":
+				case "f", "n":
+					_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_xref)
+					if ok {
+						obj_to_close = AppendChild(obj_to_close, obj{token, line_index + 1, col + 1 + before_token_len})
+					}
+				case "W", "W*":
+				case "BT", "ET":
+				case "Tc", "Tw", "Tz", "TL", "Tf", "Tr", "Ts":
+				case "Td", "TD", "Tm", "T*":
+				case "Tj", "TJ", "'", "\"":
+				case "d0", "d1":
+				case "CS", "cs", "SC", "SCN", "sc", "scn", "G", "g", "RG", "rg", "K", "k":
+				case "sh":
+				case "BI", "ID", "EI":
+					// NOTE(elias): inline graphics
+					// XXX(elias): a line of any pdf sample has this token and it has any `(` in. ignoring the line for now.
+					col = len(line)
+					continue
+				case "Do":
+				case "MP", "DP", "BMC", "BDC", "EMC":
+				case "BX", "EX":
 				default:
 					//- numbers 10 +12 -12 0 32.5 -.1 +21.0 4. 0.0
 					//  if the interger exceeds the limit it is converted to a real(float)
