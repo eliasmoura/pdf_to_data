@@ -51,8 +51,8 @@ func handle_xref(objs []obj) (obj_xref, error) {
 		return xref, errors.New(fmt.Sprintf("ERROR:%d:%d: given number of xrefs `%d` doesn't match the number of xrefs found `%d`.\n", o_tot.line, o_tot.col, tot, len(objs)/3))
 	}
 
-  var i int
-	for i =0; i < len(objs); i+=3 {
+	var i int
+	for i = 0; i < len(objs); i += 3 {
 		_1, ok1 := objs[i].Type.(obj_int)
 		_2, ok2 := objs[i+1].Type.(obj_int)
 		_3, ok3 := objs[i+2].Type.(string)

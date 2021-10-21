@@ -11,7 +11,7 @@ import (
 func TestPDF(t *testing.T) {
 
 	filepath := "./sample/dnsimple_recipe.pdf"
-  log.Printf("Trying to parse: %s\n", filepath)
+	log.Printf("Trying to parse: %s\n", filepath)
 	file, err := ioutil.ReadFile(filepath)
 	if err != nil {
 		log.Fatalln(err)

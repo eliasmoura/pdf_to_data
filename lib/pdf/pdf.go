@@ -509,8 +509,8 @@ func Parse(doc []byte) (pdf, error) {
 								var oc close_obj
 								obj_to_close, oc = RemoveCloseObj(obj_to_close)
 								var err error
-                o_xref.Type, err = handle_xref(oc.childs)
-                pdf.objs = append(pdf.objs, o_xref)
+								o_xref.Type, err = handle_xref(oc.childs)
+								pdf.objs = append(pdf.objs, o_xref)
 								if !ok {
 									return pdf, errors.New(fmt.Sprintf("ERROR: expected interger, found %s\n!", err))
 								}
@@ -753,7 +753,7 @@ func Parse(doc []byte) (pdf, error) {
 									oi, ok := o_length.Type.(obj_ref)
 									if ok {
 										delay_decode = true
-                    to_decode = append(to_decode, obj_int(len(pdf.objs))) // index of the stream I need to decode.
+										to_decode = append(to_decode, obj_int(len(pdf.objs))) // index of the stream I need to decode.
 										length = int(oi.id)
 									}
 								}
@@ -954,62 +954,62 @@ func Parse(doc []byte) (pdf, error) {
 	}
 
 	for _, i := range to_decode {
-    // o_ind, err := get_obj_by_id(pdf.objs, i)
-    // if err != nil {
-    //   log.Fatalln("failed to get id for delayed stream to decode")
-    // }
-    o_ind := pdf.objs[i]
+		// o_ind, err := get_obj_by_id(pdf.objs, i)
+		// if err != nil {
+		//   log.Fatalln("failed to get id for delayed stream to decode")
+		// }
+		o_ind := pdf.objs[i]
 		ind, ok := o_ind.Type.(obj_ind)
-    if ok {
-      o_dict,err := get_obj(ind.objs, "obj_dict")
-      dict, ok := o_dict.Type.(obj_dict)
-      ref, ok := dict["Length"].Type.(obj_ref)
-		o_ind_length, err := get_obj_by_id(pdf.objs, ref.id)
-    if err != nil {
-        log.Fatalf("failed to get id for delayed stream decode length id: %v\n",ind)
-    }
-		ind_lentgh, ok := o_ind_length.Type.(obj_ind)
-		length, ok := ind_lentgh.objs[len(ind_lentgh.objs)-1].Type.(obj_int)
 		if ok {
-			o_stream := ind.objs[len(ind.objs)-1]
-			stream, ok := o_stream.Type.(obj_stream)
+			o_dict, err := get_obj(ind.objs, "obj_dict")
+			dict, ok := o_dict.Type.(obj_dict)
+			ref, ok := dict["Length"].Type.(obj_ref)
+			o_ind_length, err := get_obj_by_id(pdf.objs, ref.id)
+			if err != nil {
+				log.Fatalf("failed to get id for delayed stream decode length id: %v\n", ind)
+			}
+			ind_lentgh, ok := o_ind_length.Type.(obj_ind)
+			length, ok := ind_lentgh.objs[len(ind_lentgh.objs)-1].Type.(obj_int)
 			if ok {
-				str := stream.encoded_content
-        if  int(length) != len(str) {
-      log.Fatalln("failed to get id for delayed stream decode; length mismatch")
-          }
-        fmt.Println("delay_decode")
-				r, err := zlib.NewReader(bytes.NewReader(str))
-				if err != nil {
-					// fmt.Println(string(doc[start:end]))
-					return pdf, errors.New(fmt.Sprintf("failled to decode stream of obj %d:%d %v", ind.id, ind.mod_id, err))
-				}
-				b, err := io.ReadAll(r)
-				// fmt.Printf("Read: %s\n", b)
-				if err != nil {
-					// fmt.Println(string(doc[start:end]))
-					return pdf, errors.New(fmt.Sprintf("failled to readall:%d: %v", line_index+1, err))
-				}
-
-				stream.decoded_content = b
-				t, ok := ind.metdata["Type"].Type.(obj_named)
-				if ok && string(t) != "FontDescriptor" {
-					_pdf, err := Parse(b)
-
-					if err != nil {
-						log.Printf("%s", err)
-						return pdf, err
+				o_stream := ind.objs[len(ind.objs)-1]
+				stream, ok := o_stream.Type.(obj_stream)
+				if ok {
+					str := stream.encoded_content
+					if int(length) != len(str) {
+						log.Fatalln("failed to get id for delayed stream decode; length mismatch")
 					}
-					stream.objs = _pdf.objs
-				}
-				o_stream.Type = stream
-				ind.objs[len(ind.objs)-1] = o_stream
-				o_ind.Type = ind
-				pdf.objs[i] = o_ind
+					fmt.Println("delay_decode")
+					r, err := zlib.NewReader(bytes.NewReader(str))
+					if err != nil {
+						// fmt.Println(string(doc[start:end]))
+						return pdf, errors.New(fmt.Sprintf("failled to decode stream of obj %d:%d %v", ind.id, ind.mod_id, err))
+					}
+					b, err := io.ReadAll(r)
+					// fmt.Printf("Read: %s\n", b)
+					if err != nil {
+						// fmt.Println(string(doc[start:end]))
+						return pdf, errors.New(fmt.Sprintf("failled to readall:%d: %v", line_index+1, err))
+					}
 
+					stream.decoded_content = b
+					t, ok := ind.metdata["Type"].Type.(obj_named)
+					if ok && string(t) != "FontDescriptor" {
+						_pdf, err := Parse(b)
+
+						if err != nil {
+							log.Printf("%s", err)
+							return pdf, err
+						}
+						stream.objs = _pdf.objs
+					}
+					o_stream.Type = stream
+					ind.objs[len(ind.objs)-1] = o_stream
+					o_ind.Type = ind
+					pdf.objs[i] = o_ind
+
+				}
 			}
 		}
-    }
 	}
 	to_decode = nil
 
@@ -1018,8 +1018,8 @@ func Parse(doc []byte) (pdf, error) {
 		for i := range pdf.objs {
 			ind, ok := pdf.objs[i].Type.(obj_ind)
 			if ok && f.id == ind.id {
-        ind.metdata = f.metadata
-        pdf.objs[i].Type = ind
+				ind.metdata = f.metadata
+				pdf.objs[i].Type = ind
 			}
 		}
 	}
@@ -1028,22 +1028,22 @@ func Parse(doc []byte) (pdf, error) {
 }
 
 func get_obj(objs []obj, o string) (obj, error) {
-  for _, _o := range objs {
-    if typeStr(_o)  == o {
-      return _o, nil
-    }
-  }
-  return obj{}, errors.New("Could not find obj")
+	for _, _o := range objs {
+		if typeStr(_o) == o {
+			return _o, nil
+		}
+	}
+	return obj{}, errors.New("Could not find obj")
 }
 func get_obj_by_id(objs []obj, id obj_int) (obj, error) {
-  var o obj
-  for _, _o := range objs {
-    ind, ok := _o.Type.(obj_ind)
-    if ok  && ind.id == id {
-      return _o, nil
-    }
-  }
-  return o, errors.New("Could not find obj")
+	var o obj
+	for _, _o := range objs {
+		ind, ok := _o.Type.(obj_ind)
+		if ok && ind.id == id {
+			return _o, nil
+		}
+	}
+	return o, errors.New("Could not find obj")
 }
 
 type p struct {
@@ -1083,7 +1083,7 @@ func Print_objs(pdf pdf) {
 		switch t := o.Type.(type) {
 		case obj_ind:
 			fmt.Println("\n", t.id, t.mod_id, "obj")
-      fmt.Println(len(t.metdata))
+			fmt.Println(len(t.metdata))
 			if len(t.objs) > 0 && len(t.metdata) > 0 {
 				ri := len(t.objs) - 1
 				to_close_ = Appendp(to_close_, p{obj{obj_ind{}, 0, 0}, len(t.objs)})
