@@ -122,9 +122,9 @@ func matchObj(o1, o2 obj) bool {
 			log.Printf(`%T(%v)[%d] does not have the same size %T(%v)[%d].`, v1, v1, len(v1), v2, v2, len(v2))
 			return false
 		}
-		for i, o := range v1 {
-			if !matchObj(obj{Type: o}, obj{Type: v2[i]}) {
-				log.Printf(`%T[%d](%v) does not match %T[%d](%v).`, v1, i, o, v2, i, v2[i])
+		for key, o := range v1 {
+			if !matchObj(o, v2[key]) {
+				log.Printf(`%T[%s](%v) does not match %T[%s](%v).`, v1, key, o, v2, key, v2[key])
 				return false
 			}
 		}
@@ -324,9 +324,8 @@ func TestDict(t *testing.T) {
 %%EOF`
 	c_dict := obj{
 		obj_dict{
-			obj_pair{obj{obj_named("Myname"), 1, 3}, obj{obj_named("k0tto"), 1, 11}},
-			obj_pair{obj{obj_named("Age"), 1, 18}, obj{obj_int(2), 1, 23}},
-		}, 1, 1}
+			"Myname": obj{obj_named("k0tto"), 2, 13},
+			"Age":    obj{obj_int(2), 2, 24}}, 1, 1}
 	log.SetPrefix("TestDict: ")
 	pdf, err := Parse([]byte(str))
 	if err != nil {
@@ -360,8 +359,8 @@ func TestIndEmpty(t *testing.T) {
 0 1 obj
 endobj
 %%EOF`
-	c_obj := obj{obj_ind{obj_int(0),
-		obj_int(1), nil}, 1, 1}
+	c_obj := obj{obj_ind{id: obj_int(0),
+		mod_id: obj_int(1), objs: nil}, 1, 1}
 	log.SetPrefix("TestIndEmpty: ")
 	pdf, err := Parse([]byte(str))
 	if err != nil {
@@ -397,17 +396,17 @@ func TestStrh(t *testing.T) {
 <My cool string>
 %%EOF`
 
-  h_str:= ""
-  index_l := strings.IndexByte(str, '<')+1
-  index_r := strings.IndexByte(str, '>')
-  for _, c := range str[index_l:index_r] {
+	h_str := ""
+	index_l := strings.IndexByte(str, '<') + 1
+	index_r := strings.IndexByte(str, '>')
+	for _, c := range str[index_l:index_r] {
 		h_str += fmt.Sprintf("%x", c)
 	}
-  lstr := str[:index_l]
-  lstr += h_str
-  lstr += str[index_r:]
+	lstr := str[:index_l]
+	lstr += h_str
+	lstr += str[index_r:]
 
-  c_strh := obj{obj_strh(str[index_l:index_r]), 1, 1}
+	c_strh := obj{obj_strh(str[index_l:index_r]), 1, 1}
 	pdf, err := Parse([]byte(lstr))
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_strh.Type, err)
@@ -472,10 +471,10 @@ stream
 endstream
 endobj
 %%EOF`
-	c_stream := obj{obj_ind{obj_int(1), obj_int(0),
-    []obj{{obj_dict{obj_pair{obj{obj_named("Length"),0,0},obj{obj_int(0),0,0}}},0,0},
-      {obj_stream{}, 1, 1},
-  }},0,0}
+	c_stream := obj{obj_ind{id: obj_int(1), mod_id: obj_int(0),
+		objs: []obj{{obj_dict{"Length": obj{obj_int(0), 0, 0}}, 0, 0},
+			{obj_stream{}, 1, 1},
+		}}, 0, 0}
 	log.SetPrefix("TestStreamEmpty: ")
 	pdf, err := Parse([]byte(str))
 	if err != nil {
@@ -520,11 +519,10 @@ endobj
 %%EOF`
 	c_dict := obj{
 		obj_dict{
-			obj_pair{obj{obj_named("Myname"), 2, 5}, obj{obj_named("k0tto"), 2, 13}},
-			obj_pair{obj{obj_named("Age"), 2, 20}, obj{obj_int(2), 2, 25}},
-		}, 2, 3}
-	c_obj := obj{obj_ind{obj_int(0),
-		obj_int(1), []obj{c_dict}}, 1, 1}
+			"Myname": obj{obj_named("k0tto"), 2, 13},
+			"Age":    obj{obj_int(2), 2, 25}}, 2, 3}
+	c_obj := obj{obj_ind{id: obj_int(0),
+		mod_id: obj_int(1), objs: []obj{c_dict}}, 1, 1}
 	pdf, err := Parse([]byte(str))
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_obj.Type, err)
@@ -550,27 +548,21 @@ func TestInd_WithComplDict(t *testing.T) {
 endobj
 %%EOF`
 	cdict := obj_dict{
-		obj_pair{obj{obj_named("Type"), 3, 5}, obj{obj_named("Page"), 3, 11}},
-		obj_pair{obj{obj_named("Parent"), 4, 1}, obj{obj_ref{obj_int(3), obj_int(0)}, 4, 14}},
-		obj_pair{obj{obj_named("MediaBox"), 5, 1},
-			obj{obj_array{
-				obj{obj_int(0), 0, 0},
-				obj{obj_int(0), 0, 0},
-				obj{obj_int(612), 0, 0},
-				obj{obj_int(792), 0, 0}}, 0, 0}},
-		obj_pair{obj{obj_named("Contents"), 0, 0}, obj{obj_ref{obj_int(5), obj_int(0)}, 0, 0}},
-		obj_pair{obj{obj_named("Resources"), 0, 0},
-			obj{obj_dict{obj_pair{obj{obj_named("ProcSet"), 0, 0},
-				obj{obj_ref{obj_int(6), obj_int(0)}, 0, 0}},
-				obj_pair{obj{obj_named("Font"), 0, 0},
-					obj{obj_dict{
-						obj_pair{obj{obj_named("F1"), 0, 0}, obj{obj_ref{7, 0}, 0, 0}}}, 8, 7}},
-			}, 7, 12},
-		},
+		"Type":   obj{obj_named("Page"), 3, 11},
+		"Parent": obj{obj_ref{obj_int(3), obj_int(0)}, 4, 14},
+		"MediaBox": obj{obj_array{
+			obj{obj_int(0), 0, 0},
+			obj{obj_int(0), 0, 0},
+			obj{obj_int(612), 0, 0},
+			obj{obj_int(792), 0, 0}}, 0, 0},
+		"Contents": obj{obj_ref{obj_int(5), obj_int(0)}, 0, 0},
+		"Resources": obj{obj_dict{"ProcSet": obj{obj_ref{obj_int(6), obj_int(0)}, 0, 0},
+			"Font": obj{obj_dict{
+				"F1": obj{obj_ref{7, 0}, 0, 0}}, 8, 7}}, 7, 12},
 	}
 	c_obj := obj{obj_ind{
-		obj_int(4), obj_int(0),
-		[]obj{{cdict, 0, 0}}},
+		id: obj_int(4), mod_id: obj_int(0),
+		objs: []obj{{cdict, 0, 0}}},
 		0, 0}
 	pdf, err := Parse([]byte(str))
 	if err != nil {
@@ -611,10 +603,9 @@ startxref
 		{364, 0, "n"},
 		{466, 0, "n"},
 		{496, 0, "n"}}
-	dict := obj_dict{
-		obj_pair{obj{obj_named("Size"), 0, 0}, obj{obj_int(8), 0, 0}},
-		obj_pair{obj{obj_named("Root"), 0, 0}, obj{obj_ref{1, 0}, 0, 0}},
-	}
+	dict := obj_dict{}
+	dict["Size"] = obj{obj_int(8), 0, 0}
+	dict["Root"] = obj{obj_ref{1, 0}, 0, 0}
 	c_obj := obj{obj_xref{
 		obj_int(0), refs,
 		dict, obj_int(625)},

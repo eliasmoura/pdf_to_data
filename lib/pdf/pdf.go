@@ -21,9 +21,10 @@ type obj_ref struct { // 5 0 R
 	mod_id obj_int
 }
 type obj_ind struct { // 5 0 obj\ncontent\nendobj
-	id     obj_int
-	mod_id obj_int
-	objs   []obj
+	id      obj_int
+	mod_id  obj_int
+	metdata obj_dict
+	objs    []obj
 }
 type obj_strl struct { // (Some string)
 	str        string
@@ -35,9 +36,9 @@ type obj_pair struct {
 	key   obj
 	value obj
 }
-type obj_dict []obj_pair // <</key [/value 1 2 R]>>
-type obj_array []obj     // [(ds) /qq [null]]
-type obj_stream struct { // stream\ncontent\nendstream
+type obj_dict map[obj_named]obj // <</key [/value 1 2 R]>>
+type obj_array []obj            // [(ds) /qq [null]]
+type obj_stream struct {        // stream\ncontent\nendstream
 	decoded         bool
 	encoded_content []byte
 	decoded_content []byte
@@ -418,6 +419,12 @@ func Parse(doc []byte) (pdf, error) {
 	var pdf pdf
 	header := []byte("%PDF-") //Ex: %PDF-1.7
 	var start, end int
+	fontfile := make([]struct {
+		id       obj_int
+		mod_id   obj_int
+		metadata map[obj_named]obj
+	},
+		0, 10)
 	for end > -1 {
 		var tend int
 		tend = bytes.IndexByte(doc[start:], '\n')
@@ -568,6 +575,29 @@ func Parse(doc []byte) (pdf, error) {
 					} else {
 						log.Fatalf("+ERROR:%d:%d Expected `%v`, found `>>`.\n", o.line, o.col, typeStr(o))
 					}
+					is_font_metadata := false
+					for i := 0; i < len(childs); i += 2 {
+						o_key := childs[i]
+						key, ok := o_key.Type.(obj_named)
+						if ok {
+							if bytes.HasPrefix([]byte(key), []byte("FontFile")) {
+								ref, ok := childs[i+1].Type.(obj_ref)
+								if ok {
+									is_font_metadata = true
+									fontfile = fontfile[:len(fontfile)+1]
+									fontfile[len(fontfile)-1].id = ref.id
+									fontfile[len(fontfile)-1].mod_id = ref.mod_id
+								}
+							}
+							dict[key] = childs[i+1]
+						} else {
+							log.Printf("ERROR:%d:%d key `%v` should be obj_named???\n", o_key.line, o_key.col, o_key)
+						}
+						// dict = append_pair(dict, obj_pair{childs[i], })
+					}
+					if is_font_metadata {
+						fontfile[len(fontfile)-1].metadata = dict
+					}
 				case "<":
 					//  <hexadecimal string> ex <ab901f> if missing a digit ex<ab1>, <ab10> is assumed.
 					//TODO(elias): Need to figure out where this should be
@@ -693,31 +723,11 @@ func Parse(doc []byte) (pdf, error) {
 							var filter string
 							var length int
 							if ok {
-								for i := range metadata {
-									key, ok := metadata[i].key.Type.(obj_named)
-									if ok && string(key) == "Filter" {
-										of, ok := metadata[i].value.Type.(obj_named)
-										if ok {
-											filter = string(of)
-											break
-										}
-									}
+								o_filter := metadata[obj_named("Filter")]
+								if o_filter.Type != nil {
+									n_filter, _ := o_filter.Type.(obj_named)
+									filter = string(n_filter)
 								}
-								for i := range metadata {
-									key, ok := metadata[i].key.Type.(obj_named)
-									if ok && string(key) == "Length" {
-										oi, ok := metadata[i].value.Type.(obj_int)
-										if ok {
-											length = int(oi)
-											break
-										} else {
-											oi, ok := metadata[i].value.Type.(obj_ref)
-											if ok {
-												delay_decode = true
-												length = int(oi.id)
-												break
-											}
-										}
 									}
 								}
 								if length > 0 {
@@ -867,6 +877,17 @@ func Parse(doc []byte) (pdf, error) {
 	if len(obj_to_close) > 0 {
 		return pdf, errors.New(fmt.Sprintf("%%EOF found, expected token %v\n", get_token_str(obj_to_close[len(obj_to_close)-1].obj, true)))
 	}
+	//add a mark  to the FontFile obj
+	for _, f := range fontfile {
+		for i := range pdf.objs {
+			ind, ok := pdf.objs[i].Type.(obj_ind)
+			if ok && f.id == ind.id {
+        ind.metdata = f.metadata
+        pdf.objs[i].Type = ind
+			}
+		}
+	}
+
 	return pdf, nil
 }
 
