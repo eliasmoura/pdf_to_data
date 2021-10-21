@@ -430,91 +430,90 @@ func Parse(doc []byte) (pdf, error) {
 		start = end + 1
 		end = tend
 	}
-	bread = len(header)
-	if !bytes.HasPrefix(doc[:bread], header) {
-		return pdf, errors.New("File is not a PDF format.")
-	}
-	ver_ := doc[bread:lines[0].end]
-	ver := bytes.Split(ver_, []byte("."))
-	if len(ver) != 2 {
-		return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version from `%v` is not a valid version `m.n`\n", line_index+1, len(header), doc[line_index]))
-	}
-	i, err := strconv.ParseInt(string(ver[0]), 10, 32)
-	if err != nil {
-		return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version `%v` is not an integer\n", line_index+1, len(header), ver[0]))
-	}
-	pdf.ver.major = int(i)
-	i, err = strconv.ParseInt(string(ver[1]), 10, 32)
-	if err != nil {
-		return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version `%v` is not an integer\n", line_index+1, len(header)+len(ver[0])+1, ver[1]))
-	}
-	pdf.ver.minor = int(i)
-	line_index++
-	bread = lines[0].end + 1
 
-	line := doc[lines[1].start:lines[1].end]
-	if '%' == line[0] &&
-		line[1] > 128 &&
-		line[2] > 128 &&
-		line[3] > 128 {
-		// "PDF has binary content."
-		line_index++
-		bread += len(line)
-		bread++
-	}
-
+	var to_decode []obj_int
 	for line_index < len(lines) {
 		col := 0
-		line = doc[lines[line_index].start:lines[line_index].end]
+		line := doc[lines[line_index].start:lines[line_index].end]
 		for col < len(line) {
 			token, pos := get_token(line[col:])
 			before_token_len := pos - len(token)
 			col += before_token_len
+			if len(token) == 0 {
+				continue
+			}
 			// bread += before_token_len
 			var objc obj
-			var is_stream_encoded bool
-			var stream_decoded_len int
 			var closed_obj obj
 			{
 				switch token {
 				case "%":
+					header := []byte("%PDF-") //Ex: %PDF-1.7
+					if line_index == 0 && bytes.HasPrefix(doc[:len(header)], header) {
+						// return pdf, errors.New("File is not a PDF format.")
+						bread = len(header)
+						ver_ := doc[bread:lines[0].end]
+						ver := bytes.Split(ver_, []byte("."))
+						if len(ver) != 2 {
+							return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version from `%v` is not a valid version `m.n`\n", line_index+1, len(header), doc[line_index]))
+						}
+						i, err := strconv.ParseInt(string(ver[0]), 10, 32)
+						if err != nil {
+							return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version `%v` is not an integer\n", line_index+1, len(header), ver[0]))
+						}
+						pdf.ver.major = int(i)
+						i, err = strconv.ParseInt(string(ver[1]), 10, 32)
+						if err != nil {
+							return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version `%v` is not an integer\n", line_index+1, len(header)+len(ver[0])+1, ver[1]))
+						}
+						pdf.ver.minor = int(i)
+						bread = lines[0].end + 1
+
+						line := doc[lines[1].start:lines[1].end]
+						if '%' == line[0] &&
+							line[1] > 128 &&
+							line[2] > 128 &&
+							line[3] > 128 {
+							// "PDF has binary content."
+							bread += len(line)
+							bread++
+							line_index++
+						}
+						col = len(doc[lines[line_index].start:lines[line_index].end])
+						continue
+					}
+
 					// % defines a commemt and it goes to the end of the line
 					if line[col+1] == '%' &&
 						line[col+2] == 'E' &&
 						line[col+3] == 'O' &&
 						line[col+4] == 'F' {
+						col++
+						bread++
+						token = string(line[col:])
 						objc = obj{obj_eof("EOF"), line_index + 1, col + 1 + before_token_len}
+						closed_obj = objc
 						col = len(line)
+
 						if len(obj_to_close) == 1 {
 							o_xref := obj_to_close[0].obj
-							xref, ok := o_xref.Type.(obj_xref)
+							_, ok := o_xref.Type.(obj_xref)
 							if ok && len(obj_to_close[0].childs) > 0 {
 								var oc close_obj
 								obj_to_close, oc = RemoveCloseObj(obj_to_close)
-								childs := oc.childs
-								childs, o_start := Pop(childs)
-								startxref, ok := o_start.Type.(obj_int)
+								var err error
+                o_xref.Type, err = handle_xref(oc.childs)
+                pdf.objs = append(pdf.objs, o_xref)
 								if !ok {
-									log.Printf("Wrong!\n")
+									return pdf, errors.New(fmt.Sprintf("ERROR: expected interger, found %s\n!", err))
 								}
-								xref.startxref = startxref
-								childs, o_dict := Pop(childs)
-								xref.enc, ok = o_dict.Type.(obj_dict)
-								if !ok {
-									log.Printf("Wrong2!\n")
-								}
-								for i := range childs {
-									ref, ok := childs[i].Type.(xref_ref)
-									if ok {
-										xref.refs = AppendRef(xref.refs, ref)
-									}
-								}
-								pdf.objs = Append(pdf.objs, obj{xref, o_xref.line, o_xref.col})
+
 							} else {
 
 								for _, o := range obj_to_close[len(obj_to_close)-1].childs {
 									pdf.objs = Append(pdf.objs, o)
 								}
+								obj_to_close, _ = RemoveCloseObj(obj_to_close)
 							}
 						}
 					} else {
@@ -622,12 +621,11 @@ func Parse(doc []byte) (pdf, error) {
 
 					id_val, ok1 := id.Type.(obj_int)
 					mod_id_val, ok2 := mod_id.Type.(obj_int)
-					if ok1 && ok2 {
-						objc = obj{obj_ref{id_val, mod_id_val}, line_index + 1, col + 1 + before_token_len}
-						closed_obj = objc
-					} else {
+					if !ok1 || !ok2 {
 						log.Printf("ERROR: token not an integer: id: [%T] mod: [%T]", id.Type, mod_id.Type)
 					}
+					objc = obj{obj_ref{id_val, mod_id_val}, line_index + 1, col + 1 + before_token_len}
+					closed_obj = objc
 				case "[":
 					//- [] denotes an array like [32 12.5 false (txt) /this]
 					o := obj{obj_array{}, line_index + 1, col + 1 + before_token_len}
@@ -844,81 +842,11 @@ func Parse(doc []byte) (pdf, error) {
 											}
 										}
 									}
-								} else {
-									_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_stream)
-									if ok {
-										obj_to_close = AppendChild(obj_to_close, obj{token, line_index + 1, col + 1 + before_token_len})
-									} else {
-										log.Printf("Can't parse token `%s` at %d:%d\n", token, line_index+1, col+1+before_token_len)
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-			if objc.Type != nil {
-				switch objc.Type.(type) {
-				case obj_strh:
-				case obj_strl:
-				case obj_dict:
-				case obj_ind:
-				case obj_stream:
-				case obj_array:
-				case obj_comment:
-				case obj_eof:
-					closed_obj = objc
-					if len(obj_to_close) == 1 {
-						o := obj_to_close[0].obj
-						if o.Type == nil && len(obj_to_close[0].childs) == 1 {
-							pdf.objs = Append(pdf.objs, obj_to_close[0].childs[0])
-							obj_to_close, _ = RemoveCloseObj(obj_to_close)
-						} else {
-							xref, ok := obj_to_close[0].obj.Type.(obj_xref)
-							childs := obj_to_close[0].childs
-							if ok && len(childs) > 0 {
-								id, ok_id := childs[0].Type.(obj_int)
-								if !ok_id {
-									return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: %v should be an obj_int is %T\n", childs[0].line, childs[0].col, childs[0], childs[0]))
-								}
-								xref.id = id
-								tot_line := childs[1].line
-								tot_col := childs[1].col
-								tot, ok_tot := childs[1].Type.(obj_int)
-								if !ok_tot {
-									return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: %v should be an obj_int is %T\n", childs[1].line, childs[1].col, childs[1], childs[1]))
 
 								}
-								childs = childs[2:]
-								childs, o = Pop(childs)
-								pos, ok_pos := o.Type.(obj_int)
-								if !ok_pos {
-									return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: %v should be an obj_int is %T\n", o.line, o.col, o, o))
-								}
-								childs, o = Pop(childs)
-								dict, ok_dict := o.Type.(obj_dict)
-								if !ok_dict {
-									return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: %v should be an obj_dict is %T\n", o.line, o.col, o, o))
-								}
-								xref.enc = dict
-								xref.startxref = pos
-								if int(tot) != len(childs) {
-									return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: given number of xrefs `%d` doesn't match the number of xrefs found `%d`.\n", tot_line, tot_col, tot, len(childs)))
-								}
-								for i := range childs {
-									ref, ok := childs[i].Type.(xref_ref)
-									if !ok {
-										return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: expect xref ref, found %s[%v]\n", childs[i].line, childs[i].col, typeStr(childs[i]), childs[i].Type))
-									}
-									xref.refs = AppendRef(xref.refs, ref)
-								}
 							}
 						}
 					}
-				case obj_ref:
-				default:
-					log.Printf("-Warning: %d:%d ", line_index, col)
-					log.Printf("Closing %T, but it is not implemented or invalid.\n", objc.Type)
 				}
 			}
 			col += len(token)
