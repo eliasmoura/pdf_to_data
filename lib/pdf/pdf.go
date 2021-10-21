@@ -177,7 +177,7 @@ var delimiters = []byte{'(', ')', '<', '>', '[', ']', '{', '}', '/', '%', ' ', '
 func get_token(txt []byte, byte ...interface{}) (string, int) {
 	var pos int
 	size := len(txt)
-	txt = bytes.TrimSpace(txt)
+	txt = bytes.TrimLeft(txt, " \t\r")
 	pos = size - len(txt)
 	for i := range txt {
 		for _, d := range delimiters {
