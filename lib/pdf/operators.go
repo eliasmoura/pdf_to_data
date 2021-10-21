@@ -64,12 +64,12 @@ func handle_operator(objs []obj, operator string) ([]obj, error) {
 		// TODO: Compatibility          | BX, EX                            | 3.20   | 95
 	case "BX", "EX":
 	}
-	return objs, errors.New(fmt.Sprintf("Cound not match operator `%s`\n", operator))
+	return objs, errors.New(fmt.Sprintf("Could not match operator `%s`\n", operator))
 }
 
 // XXXX: Special graphics state | q, Q, cm                          | 4.7    | 156
-func handle_seq_num(objs []obj, count int, operator string) ([]obj, error) {
-	count_ := 0 // cm is a 6 element obj
+func handle_seq_num(objs []obj, total_count int, operator string) ([]obj, error) {
+	count := 0 // cm is a 6 element obj
 	for len(objs) > 0 {
 		objs, o := Pop(objs)
 		switch o.Type.(type) {
@@ -78,7 +78,7 @@ func handle_seq_num(objs []obj, count int, operator string) ([]obj, error) {
 		default:
 			return objs, errors.New(fmt.Sprintf("ERROR:%d:%d %s expected a number found %s\n", o.line, o.col, operator, typeStr(o)))
 		}
-		if count_ == count {
+		if count == total_count {
 			return objs, nil
 		}
 	}
