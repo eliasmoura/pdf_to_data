@@ -21,11 +21,11 @@ type obj_ref struct { // 5 0 R
 	mod_id obj_int
 }
 type obj_ind struct { // 5 0 obj\ncontent\nendobj
-	id      obj_int
-	mod_id  obj_int
-	metdata obj_dict
-	stream  obj_stream
-	objs    []obj
+	id       obj_int
+	mod_id   obj_int
+	metadata obj_dict
+	stream   obj_stream
+	objs     []obj
 }
 type obj_strl string  // (Some string)
 type obj_strh string  // <2ca231fd1>
@@ -621,10 +621,12 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					// assume there is only one dictionary on the obj_ind
 					// will be updated every time a dictionary is parsed...
 					// XXX: should be done elsewhere after the whole dictionary is parsed?
-					ind, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_ind)
-					if ok {
-						ind.metdata = dict
-						obj_to_close[len(obj_to_close)-1].obj.Type = ind
+					if len(obj_to_close) > 0 {
+						ind, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_ind)
+						if ok {
+							ind.metadata = dict
+							obj_to_close[len(obj_to_close)-1].obj.Type = ind
+						}
 					}
 					closed_obj = obj{dict, oc.obj.line, oc.obj.col}
 				case "<":
@@ -733,7 +735,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					for _, c := range childs {
 						switch t := c.Type.(type) {
 						case obj_dict:
-							ind.metdata = t
+							ind.metadata = t
 							oc.obj.Type = ind
 						case obj_stream:
 							ind.stream = t
@@ -926,7 +928,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 			ind, ok := result.objs[i].Type.(obj_ind)
 			if ok && f.id == ind.id {
 				for key, val := range f.metadata {
-					ind.metdata[key] = val
+					ind.metadata[key] = val
 				}
 				result.objs[i].Type = ind
 			}
@@ -937,7 +939,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 		o_ind := result.objs[i]
 		ind, ok := o_ind.Type.(obj_ind)
 		if ok {
-			dict := ind.metdata
+			dict := ind.metadata
 			ref, ok := dict["Length"].Type.(obj_ref)
 			var length int
 			if !ok {
@@ -958,7 +960,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 			}
 			if ok {
 				stream := ind.stream
-				t, ok := ind.metdata["Type"].Type.(obj_named)
+				t, ok := ind.metadata["Type"].Type.(obj_named)
 				if len(ind.stream.encoded_content) > 0 && string(t) != "Metadata" {
 					str := stream.encoded_content
 					if int(length) != len(str) {
