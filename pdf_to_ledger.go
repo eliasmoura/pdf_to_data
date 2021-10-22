@@ -53,6 +53,23 @@ func main() {
 			usage(progname)
 			os.Exit(0)
 		default:
+			os.Stderr.WriteString(progname)
+			spaces := len(progname)
+			for j, o := range os.Args[1:] {
+			var err_b, err_e string
+				if j == i-1 {
+					err_b = "\033[4;31m"
+					err_e = "\033[0;0m"
+				}
+				os.Stderr.WriteString(fmt.Sprintf("%s%s%s", err_b, o, err_e))
+				if j < len(os.Args[1:]) {
+					os.Stderr.WriteString(" ")
+				}
+				spaces += len(o)
+			}
+      spaces -= len(os.Args[i])
+			os.Stderr.WriteString(fmt.Sprintf("\n%*s%s^^^%s", spaces, "", "\033[1;31m","\033[0;0m"))
+			os.Stderr.WriteString(fmt.Sprintf("Unkwon option %s\n", os.Args[i]))
 			usage(progname)
 			os.Exit(1)
 		}
