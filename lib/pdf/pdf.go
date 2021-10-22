@@ -49,6 +49,11 @@ type obj_null []byte    // null
 type obj_comment string // %comment
 type obj_eof string     // %%EOF
 
+type obj_bi struct {
+	dict obj_dict
+	data []byte
+}
+
 type pdf struct {
 	ver struct {
 		major, minor int
@@ -406,6 +411,19 @@ func get_endstream(txt []byte) (int, error) {
 			txt[i+6] == 'e' &&
 			txt[i+7] == 'a' &&
 			txt[i+8] == 'm' {
+			return i, nil
+		}
+		i++
+	}
+	return 0, errors.New("Coulds not find `endstream`")
+}
+
+func read_until_EI(txt []byte) (int, error) {
+	i := 0
+	for i < len(txt)-3 {
+		if txt[i] == 'E' &&
+			txt[i+1] == 'I' &&
+			(txt[i+2] == ' ' || txt[i+2] == '\n' || txt[i-2] == '\t' || txt[i-2] == '\r') {
 			return i, nil
 		}
 		i++
@@ -780,7 +798,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 							}
 						}
 					}
-          o := obj{obj_stream{encoded_content: stream_encoded, decoded_content: stream_decoded, objs: nil}, line_index + 1, col + 1 + before_token_len}
+					o := obj{obj_stream{encoded_content: stream_encoded, decoded_content: stream_decoded, objs: nil}, line_index + 1, col + 1 + before_token_len}
 
 					var err error
 					line_index, err = index_from_bread(lines, lines[line_index].start+end_stream)
@@ -790,7 +808,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					obj_to_close = AppendChild(obj_to_close, o)
 					// NOTE(elias): start using the metadata/stream fields in the struct
 					if ok_ind {
-            ind.stream = obj_stream{encoded_content: stream_encoded, decoded_content: stream_decoded, objs: nil}
+						ind.stream = obj_stream{encoded_content: stream_encoded, decoded_content: stream_decoded, objs: nil}
 					}
 
 				case "endstream":
@@ -842,9 +860,18 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 						obj_to_close = AppendChild(obj_to_close, obj{token, line_index + 1, col + 1 + before_token_len})
 						break
 					}
-				case "BI", "ID", "EI":
-					// NOTE(elias): inline graphics
-					// XXX(elias): a line of any pdf sample has this token and it has any `(` in. ignoring the line for now.
+				case "BI":
+					obj_to_close = AppendCloseObj(obj_to_close, obj{obj_bi{}, 0, 0})
+				case "ID", "EI":
+					// NOTE(elias): inline iamge. It is analogus to an obj_stream with BI ID EI.
+					// This will most likely be a source o problems later…
+					ei, _ := read_until_EI(doc[lines[line_index].start+col:])
+					var err error
+					line_index, err = index_from_bread(lines, lines[line_index].start+ei)
+					if err != nil {
+						log.Println(err)
+						return result, err
+					}
 					col = len(line)
 					continue
 				default:

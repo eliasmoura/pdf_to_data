@@ -3,6 +3,7 @@ package pdf
 import (
 	"errors"
 	"fmt"
+	"log"
 )
 
 type ColorSpace obj_named
@@ -28,41 +29,48 @@ func (cp ColorSpace) String() string {
 	return string(cp)
 }
 
-// PDF operators
-// Category                     | operators                         | table  | page
-// XXXX: General graphics state | w, J, j, M, d, ri, i, gs          | 4.7    | 156
-// XXXX: Special graphics state | q, Q, cm                          | 4.7    | 156
-// TODO: Path construction      | m, l, c, v, y, h, re              | 4.9    | 163
-// TODO: Path painting          | S, s, f, F, f*, B, B*, b, b*, n   | 4.10   | 167
-// TODO: Clipping paths         | W, W*                             | 4.11   | 172
-// TODO: Text objects           | BT, ET                            | 5.4    | 308
-// TODO: Text state             | Tc, Tw, Tz, TL, Tf, Tr, Ts        | 5.2    | 302
-// TODO: Text positioning       | Td, TD, Tm, T*                    | 5.5    | 310
-// TODO: Text showing           | Tj, TJ, ', "                      | 5.6    | 311
-// TODO: Type 3 fonts           | d0, d1                            | 5.10   | 326
-//   XX: Color                  | CS, cs, SC, SCN, sc, scn, G, g, RG, rg, K, k |4.21 |216
-// TODO: Shading patterns       | sh                                | 4.24   | 232
-// XXXX: Inline images          | BI, ID, EI                        | 4.38   | 278
-// TODO: XObjects               | Do                                | 4.34   | 261
-// TODO: Marked content         | MP, DP, BMC, BDC, EMC             | 9.8    | 584
-// TODO: Compatibility          | BX, EX                            | 3.20   | 95
+// PDF operators from the PDFReference.pdf
+// Category                | operators                         | page
+//  General graphics state | w, J, j, M, d, ri, i, gs          | 156
+//  Special graphics state | q, Q, cm                          | 156
+//  Path construction      | m, l, c, v, y, h, re              | 163
+//  Path painting          | S, s, f, F, f*, B, B*, b, b*, n   | 167
+//  Clipping paths         | W, W*                             | 172
+//  Text objects           | BT, ET                            | 308
+//  Text state             | Tc, Tw, Tz, TL, Tf, Tr, Ts        | 302
+//  Text positioning       | Td, TD, Tm, T*                    | 310
+//  Text showing           | Tj, TJ, ', "                      | 311
+//  Type 3 fonts           | d0, d1                            | 326
+//  Color                  | CS, cs, SC, SCN, sc, scn, G, g, RG, rg, K, k | 216
+//  Shading patterns       | sh                                | 232
+//  Inline images          | BI, ID, EI                        | 278
+//  XObjects               | Do                                | 261
+//  Marked content         | MP, DP, BMC, BDC, EMC             | 584
+//  Compatibility          | BX, EX                            | 95
 
 func handle_operator(objs []obj, operator string, color_space obj_dict) ([]obj, error) {
 	switch operator {
-	// XXXX: General graphics state | w, J, j, M, d, ri, i, gs          | 4.7    | 156
-	case "w", "J", "j", "M", "d", "ri", "i":
+	//  General graphics state | w, J, j, M, d, ri, i, gs          | 156
+	case "w", "J", "j", "M", "i":
 		return handle_seq_num(objs, 1, operator)
+	case "d":
+		objs, _ = Pop(objs)
+		objs, _ = Pop(objs)
+		return objs, nil
+	case "ri":
+		objs, _ = Pop(objs)
+		return objs, nil
 	case "gs":
 		objs, _ = Pop(objs)
 		return objs, nil
 
-		// XXXX: Special graphics state | q, Q, cm                          | 4.7    | 156
+		//  Special graphics state | q, Q, cm                          | 156
 	case "q", "Q":
 		return objs, nil
 	case "cm":
 		return handle_seq_num(objs, 6, operator)
 
-	// TODO: Path construction      | m, l, c, v, y, h, re              | 4.9    | 163
+	//  Path construction      | m, l, c, v, y, h, re              | 163
 	case "m", "l":
 		return handle_seq_num(objs, 2, operator)
 	case "c":
@@ -72,28 +80,27 @@ func handle_operator(objs []obj, operator string, color_space obj_dict) ([]obj, 
 	case "h":
 		return objs, nil
 
-		// TODO: Path painting          | S, s, f, F, f*, B, B*, b, b*, n   | 4.10   | 167
+		//  Path painting          | S, s, f, F, f*, B, B*, b, b*, n   | 167
 	case "S", "s", "f", "F", "f*", "B", "B*", "b", "b*", "n":
 		return objs, nil
 
-		// TODO: Clipping paths         | W, W*                             | 4.11   | 172
+		//  Clipping paths         | W, W*                             | 172
 	case "W", "W*":
 		return objs, nil
 
-		// TODO: Text objects           | BT, ET                            | 5.4    | 308
+		//  Text objects           | BT, ET                            | 308
 	case "BT", "ET":
 		return objs, nil
 
-		// TODO: Text state             | Tc, Tw, Tz, TL, Tf, Tr, Ts        | 5.2    | 302
+		//  Text state             | Tc, Tw, Tz, TL, Tf, Tr, Ts        | 302
 	case "Tc", "Tw", "Tz", "TL", "Tr", "Ts":
-		objs, _ = Pop(objs)
-		return objs, nil
+		return handle_seq_num(objs, 1, operator)
 	case "Tf":
 		objs, _ = Pop(objs)
 		objs, _ = Pop(objs)
 		return objs, nil
 
-	// TODO: Text positioning       | Td, TD, Tm, T*                    | 5.5    | 310
+	//  Text positioning       | Td, TD, Tm, T*                    | 310
 	case "T*":
 		return objs, nil
 	case "Td", "TD":
@@ -101,7 +108,7 @@ func handle_operator(objs []obj, operator string, color_space obj_dict) ([]obj, 
 	case "Tm":
 		return handle_seq_num(objs, 6, operator)
 
-	// TODO: Text showing           | Tj, TJ, ', "                      | 5.6    | 311
+	//  Text showing           | Tj, TJ, ', "                      | 311
 	case "Tj":
 		return objs, nil
 	case "TJ":
@@ -129,13 +136,30 @@ func handle_operator(objs []obj, operator string, color_space obj_dict) ([]obj, 
 			objs[len(objs)-1].Type = strh
 		}
 		return objs, nil
-
 	case "\"":
-		// TODO: Type 3 fonts           | d0, d1                            | 5.10   | 326
+		var o obj
+		objs, o = Pop(objs)
+		strl, ok := o.Type.(obj_strl)
+		if ok {
+			strl = "\n" + strl
+			o.Type = strl
+		}
+		strh, ok := o.Type.(obj_strh)
+		if ok {
+			strh = "\n" + strh
+			o.Type = strh
+		}
+		var err error
+		objs, err = handle_seq_num(objs, 2, operator)
+		return objs, err
 
-	case "d0", "d1":
+	//  Type 3 fonts           | d0, d1                            | 326
+	case "d0":
+		return handle_seq_num(objs, 2, operator)
+	case "d1":
+		return handle_seq_num(objs, 6, operator)
 
-	//   XX: Color                  | CS, cs, SC, SCN, sc, scn, G, g, RG, rg, K, k |4.21 |216
+	//  Color                  | CS, cs, SC, SCN, sc, scn, G, g, RG, rg, K, k |4.21 |216
 	case "CS", "cs":
 		var o obj
 		objs, o = Pop(objs)
@@ -149,7 +173,7 @@ func handle_operator(objs []obj, operator string, color_space obj_dict) ([]obj, 
 			}
 		}
 		return objs, nil
-		//NOTO(elias): need to keep track of the some functions since the amount os operands used
+		// NOTE(elias): need to keep track of the ColorSpace, since the amount os operands used
 		// byt the operator depends in things like the the current color space
 	case "SC", "sc":
 		switch cs {
@@ -184,26 +208,37 @@ func handle_operator(objs []obj, operator string, color_space obj_dict) ([]obj, 
 	case "g", "G":
 		objs, _ = Pop(objs)
 		return objs, nil
-		// TODO: Shading patterns       | sh                                | 4.24   | 232
 
+		//  Shading patterns       | sh                                | 232
 	case "sh":
-		// XXXX: Inline images          | BI, ID, EI                        | 4.38   | 278
+		objs, _ = Pop(objs)
 
+		//  Inline images          | BI, ID, EI                        | 278
 	case "BI", "ID", "EI":
 		return objs, nil
-	// TODO: XObjects               | Do                                | 4.34   | 261
+	//  XObjects               | Do                                | 261
 	case "Do":
 		objs, _ := Pop(objs)
-		// fmt.Printf("%s %v\n", typeStr(o), o)
 		return objs, nil
 
-	// TODO: Marked content         | MP, DP, BMC, BDC, EMC             | 9.8    | 584
-	case "MP", "DP", "BMC", "BDC", "EMC":
-		// TODO: Compatibility          | BX, EX                            | 3.20   | 95
+		//  Marked content         | MP, DP, BMC, BDC, EMC             | 584
+	case "MP", "BMC":
+		objs, _ = Pop(objs)
+		return objs, nil
+	case "DP", "BDC":
+		objs, _ = Pop(objs)
+		objs, _ = Pop(objs)
+		return objs, nil
+	case "EMC":
+		return objs, nil
+
+		//  Compatibility          | BX, EX                            | 95
 	case "BX", "EX":
+		return objs, nil
 	}
 	return objs, errors.New(fmt.Sprintf("Could not match operator `%s`\n", operator))
 }
+
 func get_color_space(color obj_named, color_space obj_dict) (ColorSpace, error) {
 	var result ColorSpace
 	var err error
@@ -260,7 +295,7 @@ func get_color_space(color obj_named, color_space obj_dict) (ColorSpace, error) 
 	return result, err
 }
 
-// XXXX: Special graphics state | q, Q, cm                          | 4.7    | 156
+// XXXX: Special graphics state | q, Q, cm                          | 156
 func handle_seq_num(objs []obj, total_count int, operator string) ([]obj, error) {
 	count := 0 // cm is a 6 element obj
 	for len(objs) > 0 {
@@ -270,7 +305,8 @@ func handle_seq_num(objs []obj, total_count int, operator string) ([]obj, error)
 		case obj_int, obj_real:
 			count++
 		default:
-			return objs, errors.New(fmt.Sprintf("ERROR:%d:%d operator `%s` expected a number found %s\n", o.line, o.col, operator, typeStr(o)))
+			log.Printf("ERROR:%d:%d operator `%s` expected a %s found %s\n", o.line, o.col, operator, "number?", typeStr(o))
+			return objs, nil
 		}
 		if count == total_count {
 			return objs, nil
