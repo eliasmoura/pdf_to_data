@@ -1,4 +1,4 @@
-package pdf_to_ledger
+package main
 
 import (
 	"fmt"
@@ -10,16 +10,16 @@ import (
 
 func TestPDF(t *testing.T) {
 
-	filepath := "./sample/dnsimple_recipe.pdf"
+	filepath := "./sample/FT A 752253767.pdf"
 	log.Printf("Trying to parse: %s\n", filepath)
 	file, err := ioutil.ReadFile(filepath)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	pdf, err := pdf_parser.Parse(file)
+	_, err = pdf_parser.Parse(file, nil)
 	if err != nil {
 		fmt.Print(err)
 		t.Fail()
 	}
-	pdf_parser.Print_objs(pdf)
+	// pdf_parser.Print_objs(pdf)
 }

@@ -24,12 +24,10 @@ type obj_ind struct { // 5 0 obj\ncontent\nendobj
 	id      obj_int
 	mod_id  obj_int
 	metdata obj_dict
+	stream  obj_stream
 	objs    []obj
 }
-type obj_strl struct { // (Some string)
-	str        string
-	to_balance int
-}
+type obj_strl string  // (Some string)
 type obj_strh string  // <2ca231fd1>
 type obj_named string // /NAME
 type obj_pair struct {
@@ -55,7 +53,10 @@ type pdf struct {
 	ver struct {
 		major, minor int
 	}
-	objs []obj
+	cs          ColorSpace
+	color_space obj_dict
+	objs        []obj
+	Text        []string
 }
 
 type close_obj struct {
@@ -412,12 +413,25 @@ func get_endstream(txt []byte) (int, error) {
 	return 0, errors.New("Coulds not find `endstream`")
 }
 
-func Parse(doc []byte) (pdf, error) {
+func AppendText(text []string, str string) []string {
+	m := len(text)
+	if m == cap(text) {
+		newlines := make([]string, m, (m+1)*2)
+		copy(newlines, text)
+		text = newlines
+	}
+	text = text[:m+1]
+	text[m] = str
+	return text
+}
+
+func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 	var obj_to_close []close_obj
 	line_index := 0
 	var lines []line
 	bread := 0
-	var pdf pdf
+	var result pdf
+	result.color_space = color_spacce
 	var start, end int
 	fontfile := make([]struct {
 		id       obj_int
@@ -438,7 +452,7 @@ func Parse(doc []byte) (pdf, error) {
 		end = tend
 	}
 
-	var to_decode []obj_int
+	var to_parse []obj_int
 	for line_index < len(lines) {
 		col := 0
 		line := doc[lines[line_index].start:lines[line_index].end]
@@ -459,24 +473,24 @@ func Parse(doc []byte) (pdf, error) {
 					if line_index == 0 && bytes.HasPrefix(doc[:len(header)], header) {
 						// return pdf, errors.New("File is not a PDF format.")
 						bread = len(header)
-						ver_ := doc[bread:lines[0].end]
+						ver_ := doc[bread:lines[line_index].end]
 						ver := bytes.Split(ver_, []byte("."))
 						if len(ver) != 2 {
-							return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version from `%v` is not a valid version `m.n`\n", line_index+1, len(header), doc[line_index]))
+							return result, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version from `%v` is not a valid version `m.n`\n", line_index+1, len(header), doc[line_index]))
 						}
 						i, err := strconv.ParseInt(string(ver[0]), 10, 32)
 						if err != nil {
-							return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version `%v` is not an integer\n", line_index+1, len(header), ver[0]))
+							return result, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version `%v` is not an integer\n", line_index+1, len(header), ver[0]))
 						}
-						pdf.ver.major = int(i)
+						result.ver.major = int(i)
 						i, err = strconv.ParseInt(string(ver[1]), 10, 32)
 						if err != nil {
-							return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version `%v` is not an integer\n", line_index+1, len(header)+len(ver[0])+1, ver[1]))
+							return result, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version `%v` is not an integer\n", line_index+1, len(header)+len(ver[0])+1, ver[1]))
 						}
-						pdf.ver.minor = int(i)
+						result.ver.minor = int(i)
 						bread = lines[0].end + 1
 
-						line := doc[lines[1].start:lines[1].end]
+						line := doc[lines[line_index+1].start:lines[line_index+1].end]
 						if '%' == line[0] &&
 							line[1] > 128 &&
 							line[2] > 128 &&
@@ -486,7 +500,7 @@ func Parse(doc []byte) (pdf, error) {
 							bread++
 							line_index++
 						}
-						col = len(doc[lines[line_index].start:lines[line_index].end])
+						col = len(doc[lines[0].start:lines[0].end])
 						continue
 					}
 
@@ -510,15 +524,15 @@ func Parse(doc []byte) (pdf, error) {
 								obj_to_close, oc = RemoveCloseObj(obj_to_close)
 								var err error
 								o_xref.Type, err = handle_xref(oc.childs)
-								pdf.objs = append(pdf.objs, o_xref)
+								result.objs = append(result.objs, o_xref)
 								if !ok {
-									return pdf, errors.New(fmt.Sprintf("ERROR: expected interger, found %s\n!", err))
+									return result, errors.New(fmt.Sprintf("ERROR: expected interger, found %s\n!", err))
 								}
 
 							} else {
 
 								for _, o := range obj_to_close[len(obj_to_close)-1].childs {
-									pdf.objs = Append(pdf.objs, o)
+									result.objs = Append(result.objs, o)
 								}
 								obj_to_close, _ = RemoveCloseObj(obj_to_close)
 							}
@@ -533,25 +547,28 @@ func Parse(doc []byte) (pdf, error) {
 				case "(":
 					//- strings []u8. Empty strings is valid:
 					//  (liteal) may contem new lines,(),*,!,&,^,%,\),\\…\ddd(octal up to 3 digit)
-					str := obj_strl{}
+					str := obj_strl("")
 					o := obj{str, line_index + 1, col + 1 + before_token_len}
 
 					var balance int
 					col++
 					token, balance = read_strl(doc[lines[line_index].start+col:])
-					str.str += token
+					token_ := strings.ReplaceAll(token, "\\(", "(")
+					token_ = strings.ReplaceAll(token_, "\\)", ")")
+					token_ = strings.ReplaceAll(token_, "\\\\", "\\")
+					str = obj_strl(token_)
 					o.Type = str
 					if balance > 0 {
-						return pdf, errors.New(fmt.Sprintf("ERROR:%d:%d expected token `)`, found EOF\n", o.line, o.col))
+						return result, errors.New(fmt.Sprintf("ERROR:%d:%d expected token `)`, found EOF\n", o.line, o.col))
 					}
 					col++
 					if len(obj_to_close) > 0 {
 						obj_to_close = AppendChild(obj_to_close, o)
 					} else {
-						pdf.objs = Append(pdf.objs, o)
+						result.objs = Append(result.objs, o)
 					}
 				case ")":
-					objc = obj{obj_strl{}, line_index + 1, col + 1 + before_token_len}
+					objc = obj{obj_strl(""), line_index + 1, col + 1 + before_token_len}
 				case "<<":
 					//- <<…>> denotes a dictionary like
 					//  <</Type /Example >>
@@ -571,10 +588,14 @@ func Parse(doc []byte) (pdf, error) {
 						log.Printf("%v\n", oc)
 					}
 					is_font_metadata := false
+					is_color_space := false
 					for i := 0; i < len(childs); i += 2 {
 						o_key := childs[i]
 						key, ok := o_key.Type.(obj_named)
 						if ok {
+							if key == "ColorSpace" {
+								is_color_space = true
+							}
 							if bytes.HasPrefix([]byte(key), []byte("FontFile")) {
 								ref, ok := childs[i+1].Type.(obj_ref)
 								if ok {
@@ -592,6 +613,18 @@ func Parse(doc []byte) (pdf, error) {
 					}
 					if is_font_metadata {
 						fontfile[len(fontfile)-1].metadata = dict
+					}
+					if is_color_space {
+						result.color_space = dict
+					}
+					// NOTE(elias): start using the metadata/stream fields in the struct
+					// assume there is only one dictionary on the obj_ind
+					// will be updated every time a dictionary is parsed...
+					// XXX: should be done elsewhere after the whole dictionary is parsed?
+					ind, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_ind)
+					if ok {
+						ind.metdata = dict
+						obj_to_close[len(obj_to_close)-1].obj.Type = ind
 					}
 					closed_obj = obj{dict, oc.obj.line, oc.obj.col}
 				case "<":
@@ -690,136 +723,62 @@ func Parse(doc []byte) (pdf, error) {
 				case "endobj":
 					objc = obj{obj_ind{}, line_index + 1, col + 1 + before_token_len}
 					oc := obj_to_close[len(obj_to_close)-1]
-					o, ok := oc.obj.Type.(obj_ind)
+					ind, ok := oc.obj.Type.(obj_ind)
 					if !ok {
-						log.Fatalf("ERROR: found `endobj`, expected %s\n", typeStr(oc.obj))
+						log.Fatalf("ERROR:%d:%d found `endobj`, expected %s\n", line_index+1, col+1, typeStr(oc.obj))
 					}
 					obj_to_close, oc = RemoveCloseObj(obj_to_close)
 					childs := oc.childs
+					// Assuming the first dict is a dictionary with metadata
 					for _, c := range childs {
-						o.objs = Append(o.objs, c)
+						switch t := c.Type.(type) {
+						case obj_dict:
+							ind.metdata = t
+							oc.obj.Type = ind
+						case obj_stream:
+							ind.stream = t
+						default:
+							// log.Printf("endobj: found something else: %s.\n", typeStr(c))
+							ind.objs = Append(ind.objs, c)
+						}
 					}
-					closed_obj = obj{o, oc.obj.line, oc.obj.col}
+					closed_obj = obj{ind, oc.obj.line, oc.obj.col}
 					break
 				case "stream":
 					//- the content that will be displayed to in the page
 
 					// line_index, err = index_from_bread(lines, bread)
 					o_ind := obj_to_close[len(obj_to_close)-1].obj
-					_, ok := o_ind.Type.(obj_ind)
+					ind, ok_ind := o_ind.Type.(obj_ind)
 					var stream_decoded []byte
-					// Assume the data start in a new line.
+					// Assume the stream data start in a new line.
 					line_index++
-					delay_decode := false
 					end_stream, _ := get_endstream(doc[lines[line_index].start:])
 					var stream_encoded []byte
-					if end_stream > 0 {
-						stream_encoded = doc[lines[line_index].start : lines[line_index].start+end_stream-1]
+					if doc[lines[line_index].start+end_stream-1] == '\n' {
+						end_stream--
 					}
-					var subtype obj_named
-					if ok {
-						{
+					if ok_ind {
+						if end_stream > 0 {
 							childs := obj_to_close[len(obj_to_close)-1].childs
 							o_dict := childs[len(childs)-1]
 							metadata, ok := o_dict.Type.(obj_dict)
-							var filter string
-							var length int
-							if ok {
+							_, ok_stype := metadata[obj_named("Subtype")].Type.(obj_named)
+							//NOTE(elias): assuming that the content stream metadata
+							// does not contain Type or Subtype fields.
+							if ok && !ok_stype {
 								o_filter := metadata[obj_named("Filter")]
 								if o_filter.Type != nil {
-									n_filter, _ := o_filter.Type.(obj_named)
-									filter = string(n_filter)
-								}
-								{
-									// for i := range metadata {
-									// key, ok := metadata[i].key.Type.(obj_named)
-									// if ok && string(key) == "Filter" {
-									// 	of, ok := metadata[i].value.Type.(obj_named)
-									// 	if ok {
-									// 		filter = string(of)
-									// 		break
-									// 	}
-									// }
-									// }
-								}
-								// for i := range metadata {
-								// key, ok := metadata[i].key.Type.(obj_named)
-								// if ok && string(key) == "Length" {
-								o_length := metadata["Length"]
-								oi, ok := o_length.Type.(obj_int)
-								if ok {
-									length = int(oi)
+									to_parse = append(to_parse, obj_int(len(result.objs))) // index of the stream I need to decode.
+									stream_encoded = doc[lines[line_index].start : lines[line_index].start+end_stream]
 								} else {
-									oi, ok := o_length.Type.(obj_ref)
-									if ok {
-										delay_decode = true
-										to_decode = append(to_decode, obj_int(len(pdf.objs))) // index of the stream I need to decode.
-										length = int(oi.id)
-									}
+									stream_decoded = doc[lines[line_index].start : lines[line_index].start+end_stream]
 								}
-								// }
-								// }
-								o_subtype := metadata["Subtype"]
-								n_subtype, ok := o_subtype.Type.(obj_named)
-								if ok {
-									subtype = n_subtype
-								} else {
-									// oi, ok := o_subtype.Type.(obj_ref)
-									// if ok {
-									// delay_decode = true
-									// to_decode = append(to_decode, len(pdf.objs)) // index of the stream I need to decode.
-									// length = int(oi.id)
-									// break
-									// log.Printf("Cound not get subtype, val %v\n", o_subtype)
-									// }
-								}
-								if length > 0 {
-									if !delay_decode {
-										if filter == "FlateDecode" {
-											fmt.Print("Decoding FlateDecode\n")
-											{
-												start := lines[line_index].start
-												end := start + length
-												// bbread := bread
-												bread += length
-												r, err := zlib.NewReader(bytes.NewReader(doc[start:end]))
-												if err != nil {
-													// fmt.Println(string(doc[start:end]))
-													return pdf, errors.New(fmt.Sprintf("failled to decode:%d:%d %v", line_index+1, col, err))
-												}
-												b, err := io.ReadAll(r)
-												// fmt.Printf("Read: %s\n", b)
-												if err != nil {
-													// fmt.Println(string(doc[start:end]))
-													return pdf, errors.New(fmt.Sprintf("failled to readall:%d:%d %v", line_index+1, col, err))
-												}
-												stream_decoded = b
-											}
-											fmt.Print("End FlateDecode\n")
-										}
-									}
-								}
+								to_parse = append(to_parse, obj_int(len(result.objs))) // index of the stream I need to decode.
 							}
 						}
 					}
-					var o obj
-					if !delay_decode {
-						if len(stream_decoded) > 0 {
-							if subtype != "Image" {
-								fmt.Println("Parse")
-								_pdf, err := Parse(stream_decoded)
-								fmt.Println("ENDParse")
-								if err != nil {
-									return pdf, errors.New(fmt.Sprintf("failled to parse decoded stream:%d:%d %v", line_index+1, col, err))
-								}
-								o = obj{obj_stream{encoded_content: stream_encoded, decoded_content: stream_decoded, objs: _pdf.objs}, line_index + 1, col + 1 + before_token_len}
-							}
-						} else {
-							o = obj{obj_stream{encoded_content: stream_encoded}, line_index + 1, col + 1 + before_token_len}
-						}
-					} else {
-						o = obj{obj_stream{encoded_content: stream_encoded}, line_index + 1, col + 1 + before_token_len}
-					}
+          o := obj{obj_stream{encoded_content: stream_encoded, decoded_content: stream_decoded, objs: nil}, line_index + 1, col + 1 + before_token_len}
 
 					var err error
 					line_index, err = index_from_bread(lines, lines[line_index].start+end_stream)
@@ -827,6 +786,10 @@ func Parse(doc []byte) (pdf, error) {
 						log.Println(err)
 					}
 					obj_to_close = AppendChild(obj_to_close, o)
+					// NOTE(elias): start using the metadata/stream fields in the struct
+					if ok_ind {
+            ind.stream = obj_stream{encoded_content: stream_encoded, decoded_content: stream_decoded, objs: nil}
+					}
 
 				case "endstream":
 					//everything is proccessed in after the `stream` token.
@@ -846,31 +809,42 @@ func Parse(doc []byte) (pdf, error) {
 					// for more information look at lib/pdf/operator.go
 					//NOTE(elias): The tokens below doesn't seems to be necessary when this program
 					// doesn't care to display anything.
-				case "w", "J", "j", "M", "d", "ri", "i", "gs":
-				case "q", "Q", "cm":
-				case "m", "l", "c", "v", "y", "h", "re":
-				case "S", "s", "F", "f*", "B", "B*", "b", "b*":
+				case "w", "J", "j", "M", "d", "ri", "i", "gs",
+					"q", "Q", "cm",
+					"Do",
+					"MP", "DP", "BMC", "BDC", "EMC",
+					"BX", "EX",
+					"m", "l", "c", "v", "y", "h", "re",
+					"S", "s", "F", "f*", "B", "B*", "b", "b*",
+					"W", "W*",
+					"BT", "ET",
+					"Tc", "Tw", "Tz", "TL", "Tf", "Tr", "Ts",
+					"Td", "TD", "Tm", "T*",
+					"Tj", "TJ", "'", "\"",
+					"d0", "d1",
+					"CS", "cs", "SC", "SCN", "sc", "scn", "G", "g", "RG", "rg", "K", "k",
+					"sh":
+					if len(obj_to_close) > 0 {
+						childs := obj_to_close[len(obj_to_close)-1].childs
+						var err error
+						childs, err = handle_operator(childs, token, result.color_space)
+						if err != nil {
+							return result, err
+						}
+						obj_to_close[len(obj_to_close)-1].childs = childs
+					}
+
 				case "f", "n":
 					_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_xref)
 					if ok {
 						obj_to_close = AppendChild(obj_to_close, obj{token, line_index + 1, col + 1 + before_token_len})
+						break
 					}
-				case "W", "W*":
-				case "BT", "ET":
-				case "Tc", "Tw", "Tz", "TL", "Tf", "Tr", "Ts":
-				case "Td", "TD", "Tm", "T*":
-				case "Tj", "TJ", "'", "\"":
-				case "d0", "d1":
-				case "CS", "cs", "SC", "SCN", "sc", "scn", "G", "g", "RG", "rg", "K", "k":
-				case "sh":
 				case "BI", "ID", "EI":
 					// NOTE(elias): inline graphics
 					// XXX(elias): a line of any pdf sample has this token and it has any `(` in. ignoring the line for now.
 					col = len(line)
 					continue
-				case "Do":
-				case "MP", "DP", "BMC", "BDC", "EMC":
-				case "BX", "EX":
 				default:
 					//- numbers 10 +12 -12 0 32.5 -.1 +21.0 4. 0.0
 					//  if the interger exceeds the limit it is converted to a real(float)
@@ -893,7 +867,9 @@ func Parse(doc []byte) (pdf, error) {
 
 							if err != nil {
 								if len(obj_to_close) >= 0 {
-									log.Printf("token [%s] %d:%d\n", token, line_index+1, col+1)
+									log.Printf("TOKEN:%d:%d [%s]\n", line_index+1, col+1, token)
+									log.Println(string(line))
+									log.Println(string(doc))
 								}
 								_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_xref)
 								if ok {
@@ -914,17 +890,6 @@ func Parse(doc []byte) (pdf, error) {
 											}
 										}
 									}
-									// } else {
-									// 	_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_stream)
-									// 	if ok {
-									// 		obj_to_close = AppendChild(obj_to_close, obj{token, line_index + 1, col + 1 + before_token_len})
-									// 	} else {
-									// 		obj_to_close = AppendChild(obj_to_close, obj{token, line_index + 1, col + 1 + before_token_len})
-									// 		log.Printf("Can't parse token `%s` at %d:%d\n", token, line_index+1, col+1+before_token_len)
-									// 	}
-									// }
-									// // } else {
-									// obj_to_close = AppendChild(obj_to_close, obj{token, line_index + 1, col + 1 + before_token_len})
 
 								}
 							}
@@ -940,7 +905,7 @@ func Parse(doc []byte) (pdf, error) {
 				if len(obj_to_close) > 0 {
 					obj_to_close = AppendChild(obj_to_close, closed_obj)
 				} else {
-					pdf.objs = Append(pdf.objs, closed_obj)
+					result.objs = Append(result.objs, closed_obj)
 				}
 			}
 		}
@@ -948,83 +913,108 @@ func Parse(doc []byte) (pdf, error) {
 		line_index++
 	}
 	if len(obj_to_close) > 0 {
-		if pdf.ver.major != 0 {
-			return pdf, errors.New(fmt.Sprintf("%%EOF found, expected token %v\n", get_token_str(obj_to_close[len(obj_to_close)-1].obj, true)))
+		if result.ver.major != 0 {
+			return result, errors.New(fmt.Sprintf("%%%%EOF found, expected token %v\n", get_token_str(obj_to_close[len(obj_to_close)-1].obj, true)))
+		} else {
+			result.objs = append(result.objs, obj_to_close[0].childs...)
 		}
 	}
 
-	for _, i := range to_decode {
-		// o_ind, err := get_obj_by_id(pdf.objs, i)
-		// if err != nil {
-		//   log.Fatalln("failed to get id for delayed stream to decode")
-		// }
-		o_ind := pdf.objs[i]
+	//add a mark  to the FontFile obj
+	for _, f := range fontfile {
+		for i := range result.objs {
+			ind, ok := result.objs[i].Type.(obj_ind)
+			if ok && f.id == ind.id {
+				for key, val := range f.metadata {
+					ind.metdata[key] = val
+				}
+				result.objs[i].Type = ind
+			}
+		}
+	}
+
+	for _, i := range to_parse {
+		o_ind := result.objs[i]
 		ind, ok := o_ind.Type.(obj_ind)
 		if ok {
-			o_dict, err := get_obj(ind.objs, "obj_dict")
-			dict, ok := o_dict.Type.(obj_dict)
+			dict := ind.metdata
 			ref, ok := dict["Length"].Type.(obj_ref)
-			o_ind_length, err := get_obj_by_id(pdf.objs, ref.id)
-			if err != nil {
-				log.Fatalf("failed to get id for delayed stream decode length id: %v\n", ind)
+			var length int
+			if !ok {
+				length = len(ind.stream.encoded_content)
+				if length == 0 {
+					length = len(ind.stream.decoded_content)
+				}
+				ok = true
+			} else {
+				o_ind_length, err := get_obj_by_id(result.objs, ref.id)
+				if err != nil {
+					log.Fatalf("failed to get id for delayed stream decode length id: %v\n", ind)
+				}
+				ind_length, _ := o_ind_length.Type.(obj_ind)
+				length_, ok_ := ind_length.objs[len(ind_length.objs)-1].Type.(obj_int)
+				ok = ok_
+				length = int(length_)
 			}
-			ind_lentgh, ok := o_ind_length.Type.(obj_ind)
-			length, ok := ind_lentgh.objs[len(ind_lentgh.objs)-1].Type.(obj_int)
 			if ok {
-				o_stream := ind.objs[len(ind.objs)-1]
-				stream, ok := o_stream.Type.(obj_stream)
-				if ok {
+				stream := ind.stream
+				t, ok := ind.metdata["Type"].Type.(obj_named)
+				if len(ind.stream.encoded_content) > 0 && string(t) != "Metadata" {
 					str := stream.encoded_content
 					if int(length) != len(str) {
 						log.Fatalln("failed to get id for delayed stream decode; length mismatch")
 					}
-					fmt.Println("delay_decode")
+					// fmt.Println("delay_decode")
 					r, err := zlib.NewReader(bytes.NewReader(str))
 					if err != nil {
 						// fmt.Println(string(doc[start:end]))
-						return pdf, errors.New(fmt.Sprintf("failled to decode stream of obj %d:%d %v", ind.id, ind.mod_id, err))
+						return result, errors.New(fmt.Sprintf("failled to decode stream of obj %d:%d %v", ind.id, ind.mod_id, err))
 					}
-					b, err := io.ReadAll(r)
+					stream.decoded_content, err = io.ReadAll(r)
 					// fmt.Printf("Read: %s\n", b)
 					if err != nil {
 						// fmt.Println(string(doc[start:end]))
-						return pdf, errors.New(fmt.Sprintf("failled to readall:%d: %v", line_index+1, err))
+						return result, errors.New(fmt.Sprintf("failled to readall:%d: %v", line_index+1, err))
 					}
-
-					stream.decoded_content = b
-					t, ok := ind.metdata["Type"].Type.(obj_named)
-					if ok && string(t) != "FontDescriptor" {
-						_pdf, err := Parse(b)
+				}
+				{
+					if !ok || (string(t) != "FontDescriptor" && string(t) != "Metadata") {
+						_pdf, err := Parse(stream.decoded_content, result.color_space)
+						// fmt.Println(ind.metdata)
+						for _, o := range _pdf.objs {
+							switch t := o.Type.(type) {
+							case obj_strl:
+								result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
+								// fmt.Print(t)
+							case obj_strh:
+								result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
+								// fmt.Print(t)
+							case obj_int, obj_real:
+								// fmt.Print(t)
+							default:
+								// fmt.Printf("\nERROR? got `%s` expected a string?\n", typeStr(o))
+								// fmt.Println(o)
+							}
+						}
 
 						if err != nil {
 							log.Printf("%s", err)
-							return pdf, err
+							return result, err
 						}
+						// os.WriteFile("temp7.tx", stream.decoded_content, 0600)
 						stream.objs = _pdf.objs
 					}
-					o_stream.Type = stream
-					ind.objs[len(ind.objs)-1] = o_stream
+					ind.stream = stream
 					o_ind.Type = ind
-					pdf.objs[i] = o_ind
+					result.objs[i] = o_ind
 
 				}
 			}
 		}
 	}
-	to_decode = nil
+	to_parse = nil
 
-	//add a mark  to the FontFile obj
-	for _, f := range fontfile {
-		for i := range pdf.objs {
-			ind, ok := pdf.objs[i].Type.(obj_ind)
-			if ok && f.id == ind.id {
-				ind.metdata = f.metadata
-				pdf.objs[i].Type = ind
-			}
-		}
-	}
-
-	return pdf, nil
+	return result, nil
 }
 
 func get_obj(objs []obj, o string) (obj, error) {
@@ -1044,6 +1034,10 @@ func get_obj_by_id(objs []obj, id obj_int) (obj, error) {
 		}
 	}
 	return o, errors.New("Could not find obj")
+}
+
+func init() {
+	log.SetFlags(log.Lshortfile | log.Lmsgprefix)
 }
 
 type p struct {
@@ -1083,10 +1077,12 @@ func Print_objs(pdf pdf) {
 		switch t := o.Type.(type) {
 		case obj_ind:
 			fmt.Println("\n", t.id, t.mod_id, "obj")
-			fmt.Println(len(t.metdata))
-			if len(t.objs) > 0 && len(t.metdata) > 0 {
+			fmt.Println(len(t.stream.decoded_content))
+			if len(t.objs) > 0 && len(t.stream.decoded_content) > 0 {
 				ri := len(t.objs) - 1
-				to_close_ = Appendp(to_close_, p{obj{obj_ind{}, 0, 0}, len(t.objs)})
+				fmt.Println("Has COntent")
+				fmt.Println(t.stream.decoded_content)
+				to_close_ = Appendp(to_close_, p{obj{obj_ind{}, 0, 0}, len(t.stream.objs)})
 				for ; ri >= 0; ri-- {
 					to_close = Append(to_close, t.objs[ri])
 				}
@@ -1121,7 +1117,7 @@ func Print_objs(pdf pdf) {
 			fmt.Print(" ", t.id, t.mod_id, " R")
 			to_close_[len(to_close_)-1].n--
 		case obj_strl:
-			fmt.Printf("(%.10s)", string(t.str))
+			fmt.Printf("(%.10s)", string(t))
 			to_close_[len(to_close_)-1].n--
 		case obj_strh:
 			fmt.Printf("<%s>", t)

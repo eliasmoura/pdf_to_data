@@ -1,4 +1,4 @@
-package pdf_to_ledger
+package main
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	pdf_parser "pdf_to_ledger/lib/pdf"
+	"strconv"
 	"strings"
 )
 
@@ -15,25 +16,81 @@ func usage(progname string) {
     `, progname, progname)
 }
 
+func show_elementes(e []string) {
+	for i, v := range e {
+		fmt.Printf("%d: %s\n", i, v)
+	}
+}
+
+type Cmd string
+
+const (
+  list Cmd = "list"
+  format Cmd = "formt"
+)
+
 func main() {
 	progname := os.Args[0]
 	progname_ := strings.Split(progname, "/")
 	progname = progname_[len(progname_)-1]
 	var filepath string
-	if len(os.Args[1:]) < 1 {
+	i := 1
+	var arg string
+  var cmd Cmd
+	for ; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "-f":
+			i++
+			filepath = os.Args[i]
+		case "-e":
+			i++
+			arg = os.Args[i]
+    case "-list":
+      cmd = list
+      fmt.Println("dsa")
+    case "-format":
+      cmd = format
+    case "-help", "-h", "--help":
+      usage(progname)
+      os.Exit(0)
+		default:
+			usage(progname)
+      os.Exit(1)
+		}
+	}
+  fmt.Println(cmd)
+	if len(filepath) < 1 {
 		usage(progname)
 		filepath = "bank_recipe.pdf"
-	} else {
-		filepath = os.Args[1]
 	}
 	file, err := ioutil.ReadFile(filepath)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	pdf, err := pdf_parser.Parse(file)
+	seq := strings.Split(arg, ",")
+	pdf, err := pdf_parser.Parse(file, nil)
 	if err != nil {
 		fmt.Print(err)
 		os.Exit(1)
 	}
-	pdf_parser.Print_objs(pdf)
+  switch cmd {
+  case list:
+  for j,v := range pdf.Text{
+  fmt.Printf("%4d: %s\n", j, v)
+    }
+  case format:
+	for j, v := range seq {
+		i, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			log.Println(err)
+			log.Fatalln("Failed to parse eletemt, nedd to be an interger.|")
+		}
+		fmt.Print(pdf.Text[i])
+		if j < len(seq)-1 {
+			fmt.Print(" ")
+		}
+	}
+	fmt.Println()
+}
+	// pdf_parser.Print_objs(pdf)
 }
