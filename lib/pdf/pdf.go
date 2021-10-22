@@ -845,18 +845,26 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					}
 				case "BI":
 					obj_to_close = AppendCloseObj(obj_to_close, obj{obj_bi{}, 0, 0})
-				case "ID", "EI":
+				case "ID":
 					// NOTE(elias): inline iamge. It is analogus to an obj_stream with BI ID EI.
 					// This will most likely be a source o problems later…
-					ei, _ := read_until_EI(doc[lines[line_index].start+col:])
-					var err error
-					line_index, err = index_from_bread(lines, lines[line_index].start+ei)
-					if err != nil {
-						log.Println(err)
-						return result, err
+
+					if len(obj_to_close) > 0 {
+						_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_bi)
+						if ok {
+							ei, _ := read_until_EI(doc[lines[line_index].start+col:])
+							var err error
+							line_index, err = index_from_bread(lines, lines[line_index].start+ei)
+							if err != nil {
+								log.Println(err)
+								return result, err
+							}
+						}
 					}
 					col = len(line)
+					obj_to_close, _ = RemoveCloseObj(obj_to_close)
 					continue
+				case "EI":
 				default:
 					//- numbers 10 +12 -12 0 32.5 -.1 +21.0 4. 0.0
 					//  if the interger exceeds the limit it is converted to a real(float)
