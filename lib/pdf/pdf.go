@@ -81,20 +81,6 @@ type obj_xref struct {
 	startxref obj_int
 }
 
-func append_pair(slice []obj_pair, data ...obj_pair) []obj_pair {
-	m := len(slice)
-	n := m + len(data)
-	if n > cap(slice) { // if necessary, reallocate
-		// allocate double what's needed, for future growth.
-		newSlice := make([]obj_pair, (n+1)*2)
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:n]
-	copy(slice[m:n], data)
-	return slice
-}
-
 func typeStr(t obj) string {
 	switch t.Type.(type) {
 	case obj_ind:
@@ -481,15 +467,14 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 			if len(token) == 0 {
 				continue
 			}
-			// bread += before_token_len
 			var objc obj
 			var closed_obj obj
 			{
 				switch token {
 				case "%":
+					// % defines a commemt and it goes to the end of the line
 					header := []byte("%PDF-") //Ex: %PDF-1.7
 					if line_index == 0 && bytes.HasPrefix(doc[:len(header)], header) {
-						// return pdf, errors.New("File is not a PDF format.")
 						bread = len(header)
 						ver_ := bytes.TrimSpace(doc[bread:lines[line_index].end])
 						ver := bytes.Split(ver_, []byte("."))
@@ -522,7 +507,6 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 						continue
 					}
 
-					// % defines a commemt and it goes to the end of the line
 					if line[col+1] == '%' &&
 						line[col+2] == 'E' &&
 						line[col+3] == 'O' &&
@@ -750,6 +734,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					obj_to_close, oc = RemoveCloseObj(obj_to_close)
 					childs := oc.childs
 					// Assuming the first dict is a dictionary with metadata
+					// TODO(elias): take a look and make sure this code does what the comment says.
 					for _, c := range childs {
 						switch t := c.Type.(type) {
 						case obj_dict:
@@ -758,7 +743,6 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 						case obj_stream:
 							ind.stream = t
 						default:
-							// log.Printf("endobj: found something else: %s.\n", typeStr(c))
 							ind.objs = Append(ind.objs, c)
 						}
 					}
@@ -767,7 +751,6 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 				case "stream":
 					//- the content that will be displayed to in the page
 
-					// line_index, err = index_from_bread(lines, bread)
 					o_ind := obj_to_close[len(obj_to_close)-1].obj
 					ind, ok_ind := o_ind.Type.(obj_ind)
 					var stream_decoded []byte
@@ -894,11 +877,9 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 								break
 							}
 
-							if err != nil {
+							if err != nil { // should only be used by xref? last character n and f
 								if len(obj_to_close) >= 0 {
 									log.Printf("TOKEN:%d:%d [%s]\n", line_index+1, col+1, token)
-									log.Println(string(line))
-									log.Println(string(doc))
 								}
 								_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_xref)
 								if ok {
@@ -1009,20 +990,14 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 				{
 					if !ok || (string(t) != "FontDescriptor" && string(t) != "Metadata") {
 						_pdf, err := Parse(stream.decoded_content, result.color_space)
-						// fmt.Println(ind.metdata)
 						for _, o := range _pdf.objs {
 							switch t := o.Type.(type) {
 							case obj_strl:
 								result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
-								// fmt.Print(t)
 							case obj_strh:
 								result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
-								// fmt.Print(t)
 							case obj_int, obj_real:
-								// fmt.Print(t)
 							default:
-								// fmt.Printf("\nERROR? got `%s` expected a string?\n", typeStr(o))
-								// fmt.Println(o)
 							}
 						}
 
@@ -1030,7 +1005,6 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 							log.Printf("%s", err)
 							return result, err
 						}
-						// os.WriteFile("temp7.tx", stream.decoded_content, 0600)
 						stream.objs = _pdf.objs
 					}
 					ind.stream = stream
