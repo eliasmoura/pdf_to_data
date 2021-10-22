@@ -473,7 +473,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					if line_index == 0 && bytes.HasPrefix(doc[:len(header)], header) {
 						// return pdf, errors.New("File is not a PDF format.")
 						bread = len(header)
-						ver_ := doc[bread:lines[line_index].end]
+						ver_ := bytes.TrimSpace(doc[bread:lines[line_index].end])
 						ver := bytes.Split(ver_, []byte("."))
 						if len(ver) != 2 {
 							return result, errors.New(fmt.Sprintf("ERROR:%d:%d: Failed to parse PDF version from `%v` is not a valid version `m.n`\n", line_index+1, len(header), doc[line_index]))
