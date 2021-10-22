@@ -25,8 +25,8 @@ func show_elementes(e []string) {
 type Cmd string
 
 const (
-  list Cmd = "list"
-  format Cmd = "formt"
+	list   Cmd = "list"
+	format Cmd = "formt"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 	var filepath string
 	i := 1
 	var arg string
-  var cmd Cmd
+	var cmd Cmd
 	for ; i < len(os.Args); i++ {
 		switch os.Args[i] {
 		case "-f":
@@ -45,20 +45,19 @@ func main() {
 		case "-e":
 			i++
 			arg = os.Args[i]
-    case "-list":
-      cmd = list
-      fmt.Println("dsa")
-    case "-format":
-      cmd = format
-    case "-help", "-h", "--help":
-      usage(progname)
-      os.Exit(0)
+		case "-list":
+			cmd = list
+		case "-format":
+			cmd = format
+		case "-help", "-h", "--help":
+			usage(progname)
+			os.Exit(0)
 		default:
 			usage(progname)
-      os.Exit(1)
+			os.Exit(1)
 		}
 	}
-  fmt.Println(cmd)
+
 	if len(filepath) < 1 {
 		usage(progname)
 		filepath = "bank_recipe.pdf"
@@ -73,24 +72,24 @@ func main() {
 		fmt.Print(err)
 		os.Exit(1)
 	}
-  switch cmd {
-  case list:
-  for j,v := range pdf.Text{
-  fmt.Printf("%4d: %s\n", j, v)
-    }
-  case format:
-	for j, v := range seq {
-		i, err := strconv.ParseInt(v, 10, 32)
-		if err != nil {
-			log.Println(err)
-			log.Fatalln("Failed to parse eletemt, nedd to be an interger.|")
+
+	switch cmd {
+	case list:
+		for j, v := range pdf.Text {
+			fmt.Printf("%4d: %s\n", j, v)
 		}
-		fmt.Print(pdf.Text[i])
-		if j < len(seq)-1 {
-			fmt.Print(" ")
+	case format:
+		for j, v := range seq {
+			i, err := strconv.ParseInt(v, 10, 32)
+			if err != nil {
+				log.Println(err)
+				log.Fatalln("Failed to parse eletemt, nedd to be an interger.|")
+			}
+			fmt.Print(pdf.Text[i])
+			if j < len(seq)-1 {
+				fmt.Print(" ")
+			}
 		}
+		fmt.Println()
 	}
-	fmt.Println()
-}
-	// pdf_parser.Print_objs(pdf)
 }
