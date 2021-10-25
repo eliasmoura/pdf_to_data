@@ -1,3 +1,3 @@
-module pdf_to_ledger
+module pdf_to_data
 
 go 1.17

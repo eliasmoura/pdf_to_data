@@ -1,10 +1,10 @@
-# pdf_to_ledger
+# pdf_to_data
 
-Transform a pdf accounting document into a ledger-cli dormat in a jq like way.
+Transform a pdf accounting document into a data that is machine parsable. Somw what inspired by [jq](https://github.com/stedolan/jq).
 
-This is a toy project to learn how to use the go language.
+This is a toy project to learn how to program in the go language.
 
-`pdf_to_ledger` will take a pdf file and a convert its content to a [ledger](https://www.ledger-cli.org) format based of a `query` like [jq](https://stedolan.github.io/jq).
+`pdf_to_data` will take a pdf file and a convert its content to a machine parsable (cli FS style) format based of a `query` like [jq](https://stedolan.github.io/jq).
 
 ## References:
 
