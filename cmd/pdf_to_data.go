@@ -6,12 +6,17 @@ import (
 	"log"
 	"os"
 <<<<<<< HEAD:cmd/pdf_to_data.go
+<<<<<<< HEAD:cmd/pdf_to_data.go
 	pdf_parser "pdf_to_data/lib/pdf"
 	"pdf_to_data/lib/query"
 =======
 	pdf_parser "pdf_to_ledger/lib/pdf"
 	"pdf_to_ledger/lib/query"
 >>>>>>> 6383949 (query: Partial implementation of the query routine.):pdf_to_ledger.go
+=======
+	pdf_parser "pdf_to_data/lib/pdf"
+	"pdf_to_data/lib/query"
+>>>>>>> 23e5ab2 (project: change the project scope.):pdf_to_ledger.go
 	"strings"
 )
 
