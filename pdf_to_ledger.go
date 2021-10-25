@@ -6,13 +6,17 @@ import (
 	"log"
 	"os"
 	pdf_parser "pdf_to_ledger/lib/pdf"
-	"strconv"
+	"pdf_to_ledger/lib/query"
 	"strings"
 )
 
 func usage(progname string) {
 	fmt.Printf(`%s usage:
-    %s file.pdf [output.txt]
+%s -f <filepath> cmd
+  -f <filepath>     Indicates where the PDF file is
+  cmd               The command you want to execute
+    -list           List the indexed text in the PDF file
+    -format 'query' The query you want to use.
     `, progname, progname)
 }
 
@@ -25,8 +29,16 @@ func show_elementes(e []string) {
 type Cmd string
 
 const (
-	list   Cmd = "list"
-	format Cmd = "formt"
+	list      Cmd = "list"
+	format    Cmd = "formt"
+	cmd_query Cmd = "query"
+)
+
+type Cmd_colors string
+
+const (
+	red    Cmd_colors = "\033[4;31m"
+	normal Cmd_colors = "\033[0;0m"
 )
 
 func main() {
@@ -42,13 +54,16 @@ func main() {
 		case "-f":
 			i++
 			filepath = os.Args[i]
-		case "-e":
-			i++
-			arg = os.Args[i]
 		case "-list":
 			cmd = list
+		case "-query":
+			cmd = cmd_query
+			i++
+			arg = os.Args[i]
 		case "-format":
 			cmd = format
+			i++
+			arg = os.Args[i]
 		case "-help", "-h", "--help":
 			usage(progname)
 			os.Exit(0)
@@ -56,10 +71,10 @@ func main() {
 			os.Stderr.WriteString(progname)
 			spaces := len(progname)
 			for j, o := range os.Args[1:] {
-			var err_b, err_e string
+				var err_b, err_e Cmd_colors
 				if j == i-1 {
-					err_b = "\033[4;31m"
-					err_e = "\033[0;0m"
+					err_b = red
+					err_e = normal
 				}
 				os.Stderr.WriteString(fmt.Sprintf("%s%s%s", err_b, o, err_e))
 				if j < len(os.Args[1:]) {
@@ -67,8 +82,8 @@ func main() {
 				}
 				spaces += len(o)
 			}
-      spaces -= len(os.Args[i])
-			os.Stderr.WriteString(fmt.Sprintf("\n%*s%s^^^%s", spaces, "", "\033[1;31m","\033[0;0m"))
+			spaces -= len(os.Args[i])
+			os.Stderr.WriteString(fmt.Sprintf("\n%*s%s^^^%s", spaces, "", red, normal))
 			os.Stderr.WriteString(fmt.Sprintf("Unkwon option %s\n", os.Args[i]))
 			usage(progname)
 			os.Exit(1)
@@ -76,14 +91,14 @@ func main() {
 	}
 
 	if len(filepath) < 1 {
+		os.Stderr.WriteString(fmt.Sprintf("Missing %s-f <filepath>%s\n", red, normal))
 		usage(progname)
-		filepath = "bank_recipe.pdf"
+		os.Exit(1)
 	}
 	file, err := ioutil.ReadFile(filepath)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	seq := strings.Split(arg, ",")
 	pdf, err := pdf_parser.Parse(file, nil)
 	if err != nil {
 		fmt.Print(err)
@@ -95,18 +110,21 @@ func main() {
 		for j, v := range pdf.Text {
 			fmt.Printf("%4d: %s\n", j, v)
 		}
-	case format:
-		for j, v := range seq {
-			i, err := strconv.ParseInt(v, 10, 32)
-			if err != nil {
-				log.Println(err)
-				log.Fatalln("Failed to parse eletemt, nedd to be an interger.|")
-			}
-			fmt.Print(pdf.Text[i])
-			if j < len(seq)-1 {
-				fmt.Print(" ")
-			}
+	case cmd_query:
+		q, err := query.ParseQuery(arg)
+		if err != nil {
+			log.Fatalln(err)
 		}
-		fmt.Println()
+		result, err := query.RunQuery(q, pdf.Text)
+		for _, l := range result {
+			fmt.Println(l)
+		}
+		if err != nil {
+			log.Fatalf("Query `%s` did not find any entry\n", err)
+		}
+	default:
+		os.Stderr.WriteString(fmt.Sprintf("Missing %s<cmd>%s\n", red, normal))
+		usage(progname)
+		os.Exit(1)
 	}
 }

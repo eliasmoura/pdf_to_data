@@ -982,16 +982,12 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					if int(length) != len(str) {
 						log.Fatalln("failed to get id for delayed stream decode; length mismatch")
 					}
-					// fmt.Println("delay_decode")
 					r, err := zlib.NewReader(bytes.NewReader(str))
 					if err != nil {
-						// fmt.Println(string(doc[start:end]))
 						return result, errors.New(fmt.Sprintf("failled to decode stream of obj %d:%d %v", ind.id, ind.mod_id, err))
 					}
 					stream.decoded_content, err = io.ReadAll(r)
-					// fmt.Printf("Read: %s\n", b)
 					if err != nil {
-						// fmt.Println(string(doc[start:end]))
 						return result, errors.New(fmt.Sprintf("failled to readall:%d: %v", line_index+1, err))
 					}
 				}
