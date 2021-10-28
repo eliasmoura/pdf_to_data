@@ -27,6 +27,7 @@ type obj_ind struct { // 5 0 obj\ncontent\nendobj
 	stream   obj_stream
 	objs     []obj
 }
+type obj_str string
 type obj_strl string  // (Some string)
 type obj_strh string  // <2ca231fd1>
 type obj_named string // /NAME
@@ -62,6 +63,7 @@ type pdf struct {
 	color_space obj_dict
 	objs        []obj
 	Text        []string
+	Resources   []obj_resources
 }
 
 type close_obj struct {
@@ -79,6 +81,25 @@ type obj_xref struct {
 	refs      []xref_ref
 	enc       obj_dict
 	startxref obj_int
+}
+
+type obj_codechar uint32
+type obj_bfchar map[obj_codechar]obj_codechar
+type obj_bfrange struct {
+	start, end    obj_codechar
+	dest_codechar obj_codechar
+	dest_array    []obj_codechar
+}
+type obj_codespace struct {
+	codespacerange [2]obj_codechar
+	bfranges       []obj_bfrange // either srcCode destCode or sdcCode srcCode destCode
+	bfchars        obj_bfchar    // either srcCode destCode or sdcCode srcCode destCode
+}
+type obj_resources struct {
+	CIDSystemInfo obj_dict
+	CMapName      obj_named
+	CMapType      obj_int
+	CodeSpace     obj_codespace
 }
 
 func typeStr(t obj) string {
@@ -198,7 +219,10 @@ func read_strl(txt []byte) (string, int) {
 	for i := range txt {
 		if txt[i] == ')' {
 			if i-1 >= 0 && txt[i-1] == '\\' {
-				continue
+				if i-2 >= 0 && txt[i-2] == '\\' {
+				} else {
+					continue
+				}
 			}
 			to_balance--
 			if i == 0 {
@@ -429,7 +453,7 @@ func AppendText(text []string, str string) []string {
 	return text
 }
 
-func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
+func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, error) {
 	var obj_to_close []close_obj
 	line_index := 0
 	var lines []line
@@ -456,7 +480,8 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 		end = tend
 	}
 
-	var to_parse []obj_int
+	var to_parse []obj_int // objs that has streams to be parsed.
+	dict_begin := false    // for CID resources dict begin
 	for line_index < len(lines) {
 		col := 0
 		line := doc[lines[line_index].start:lines[line_index].end]
@@ -611,7 +636,6 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 						} else {
 							log.Printf("ERROR:%d:%d key `%v` should be obj_named???\n", o_key.line, o_key.col, o_key)
 						}
-						// dict = append_pair(dict, obj_pair{childs[i], })
 					}
 					if is_font_metadata {
 						fontfile[len(fontfile)-1].metadata = dict
@@ -619,22 +643,9 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					if is_color_space {
 						result.color_space = dict
 					}
-					// NOTE(elias): start using the metadata/stream fields in the struct
-					// assume there is only one dictionary on the obj_ind
-					// will be updated every time a dictionary is parsed...
-					// XXX: should be done elsewhere after the whole dictionary is parsed?
-					if len(obj_to_close) > 0 {
-						ind, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_ind)
-						if ok {
-							ind.metadata = dict
-							obj_to_close[len(obj_to_close)-1].obj.Type = ind
-						}
-					}
 					closed_obj = obj{dict, oc.obj.line, oc.obj.col}
 				case "<":
 					//  <hexadecimal string> ex <ab901f> if missing a digit ex<ab1>, <ab10> is assumed.
-					//TODO(elias): Need to figure out where this should be
-
 					o := obj{obj_strh(""), line_index + 1, col + 1 + before_token_len}
 					col++
 					var err error
@@ -643,43 +654,103 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 						log.Println(string(doc))
 						log.Fatalf("ERROR:%d:%d expected token `>`, found EOF\n", o.line, o.col)
 					}
-					strh := token
-					size := len(strh)
-					if size%2 != 0 {
-						strh = strh + "0"
-						size++
+					var oj obj
+					if len(obj_to_close) > 0 {
+						oj = obj_to_close[len(obj_to_close)-1].obj
 					}
-					size = size / 2
-					shex := make([]uint64, size)
-					for i := range shex {
-						it := i * 2
-						var err error
-						shex[i], err = strconv.ParseUint(strh[it:it+2], 16, 0)
+					switch oj.Type {
+					case "beginbfchar", "beginbfrange", "begincodespacerange":
+						val, err := strconv.ParseUint(token, 16, 32)
 						if err != nil {
-							log.Printf("ERRO:%d:%d Cound not Parse `%s` in hexadecimal string: %s\n", line_index+1, col+1+i, strh[it:it+1], strh)
+							log.Printf("ERRO:%d:%d Cound not Parse `%s` in hexadecimal codepoint.\n", line_index+1, col+1, token)
+						}
+						obj_to_close = AppendChild(obj_to_close, obj{obj_codechar(val), line_index + 1, col + 1})
+					default:
+						strh := token
+						size := len(strh)
+						if len(resources) == 0 {
+							if size%2 != 0 {
+								strh = strh + "0"
+								size++
+							}
+							size = size / 2
+							shex := make([]uint64, size)
+							for i := range shex {
+								it := i * 2
+								var err error
+								shex[i], err = strconv.ParseUint(strh[it:it+2], 16, 0)
+								if err != nil {
+									log.Printf("ERRO:%d:%d Cound not Parse `%s` in hexadecimal string: %s\n", line_index+1, col+1+i, strh[it:it+1], strh)
+								}
+							}
+							s := make([]string, len(shex))
+							for i := range shex {
+								s[i] = fmt.Sprintf("%c", shex[i])
+							}
+							fstr := strings.Join(s, "")
+							o.Type = obj_strh(fstr)
+							closed_obj = o
+						} else { // use the resources for the encoding
+							// NOTE(elias): assuming character has 16bits
+							size = size / 4
+							shex := make([]int64, 0, size)
+							for it := 0; it < len(strh); it += 4 {
+								char, err := strconv.ParseInt(strh[it:it+4], 16, 32)
+								found := false
+								for _, res := range resources {
+									if c, ok := res.CodeSpace.bfchars[obj_codechar(char)]; ok {
+										char = int64(c)
+										found = true
+										break
+									}
+								}
+								if !found {
+									for _, res := range resources {
+										for i := range res.CodeSpace.bfranges {
+											if int64(res.CodeSpace.bfranges[i].start) <= char && char <= int64(res.CodeSpace.bfranges[i].end) {
+												if len(res.CodeSpace.bfranges[i].dest_array) > 0 {
+													fmt.Println("So… this PDF is using bgrangs array. I don't know how to handle that yet.")
+													char += int64(res.CodeSpace.bfranges[i].dest_array[0])
+												} else {
+													char += int64(res.CodeSpace.bfranges[i].dest_codechar)
+												}
+												found = true
+												break
+											}
+										}
+									}
+								}
+								if char&0xffff0000 == 0 {
+									shex = append(shex, char)
+								} else {
+									shex = append(shex, char>>16)
+									shex = append(shex, char&0x0000ffff)
+								}
+								if err != nil {
+									log.Printf("ERRO:%d:%d Cound not Parse `%s` in hexadecimal string: %s\n", line_index+1, col+1+it, strh[it:it+1], strh)
+								}
+							}
+							s := make([]string, len(shex))
+							for i := range shex {
+								s[i] = string(rune(shex[i]))
+							}
+							fstr := strings.Join(s, "")
+							o.Type = obj_strh(fstr)
+							closed_obj = o
 						}
 					}
-					s := make([]string, len(shex))
-					for i := range shex {
-						s[i] = fmt.Sprintf("%c", shex[i])
-					}
-					fstr := strings.Join(s, "")
-					o.Type = obj_strh(fstr)
 					col++
-					closed_obj = o
 				case ">":
 					objc = obj{obj_strh(""), line_index + 1, col + 1 + before_token_len}
 				case "/":
 					//- named objects start with the prefix / with no white spaces or delimiters
 					//  they are case sensitive… /Name1 /other /@this /$$ /1.2 /aa;dd_ss**a? /.notdef are valid.
 					// TODO(k0tto): Need to handle the use of characters in hex as `/GF#3A`
-					//  PDF>1.2 /#13asd is valid(hexadecimal of of invalid character)
+					//  PDF>1.2 /#13asd is valid(hexadecimal of invalid character)
 					col++
-					// bread++
 					token, pos = get_token(line[col:])
 					obj_to_close = AppendChild(obj_to_close, obj{obj_named(token), line_index + 1, col + 1 + before_token_len})
 				case "R":
-					//- obj ref, 1 0 R, Where `1 0` refers to an obj_ind
 					childs, mod_id := Pop(obj_to_close[len(obj_to_close)-1].childs)
 					childs, id := Pop(childs)
 					obj_to_close[len(obj_to_close)-1].childs = childs
@@ -700,7 +771,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 					oc := obj_to_close[len(obj_to_close)-1]
 					o, ok := oc.obj.Type.(obj_array)
 					if !ok {
-						log.Fatalf("ERROR: objc: %T, obj_to_close[last]: %T\n", objc.Type, o)
+						log.Fatalf("ERROR: objc: %T, obj_to_close[last]: %T\n", objc.Type, oc.obj.Type)
 					}
 					obj_to_close, oc = RemoveCloseObj(obj_to_close)
 					childs := oc.childs
@@ -772,7 +843,6 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 							if ok && !ok_stype {
 								o_filter := metadata[obj_named("Filter")]
 								if o_filter.Type != nil {
-									to_parse = append(to_parse, obj_int(len(result.objs))) // index of the stream I need to decode.
 									stream_encoded = doc[lines[line_index].start : lines[line_index].start+end_stream]
 								} else {
 									stream_decoded = doc[lines[line_index].start : lines[line_index].start+end_stream]
@@ -796,6 +866,235 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 
 				case "endstream":
 					//everything is proccessed in after the `stream` token.
+				case "def":
+					cspacerange, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_resources)
+					if !ok {
+						_str := fmt.Sprintf("Expected %s, found `def`\n", typeStr(obj_to_close[len(obj_to_close)-1].obj))
+						log.Printf(_str)
+						return result, errors.New(_str)
+					}
+
+					childs, o_value := Pop(obj_to_close[len(obj_to_close)-1].childs)
+					childs, o_key := Pop(childs)
+					obj_to_close[len(obj_to_close)-1].childs = childs
+					key, ok := o_key.Type.(obj_named)
+					if !ok {
+						log.Print("ERROR:def token not an named")
+					}
+					switch key {
+					case "CIDSystemInfo":
+						dict, ok := o_value.Type.(obj_dict)
+						if !ok {
+							log.Print("ERROR:def dict token not a dict: ", o_value)
+							return result, errors.New("ERROR:def dict token not a dict: ")
+						}
+						cspacerange.CIDSystemInfo = dict
+					case "CMapName":
+						str, ok := o_value.Type.(obj_named)
+						if !ok {
+							log.Print("ERROR:def dict token not a obj_named")
+							return result, errors.New("ERROR:def dict token not a obj_named")
+						}
+						cspacerange.CMapName = str
+					case "CMapType":
+						i, ok := o_value.Type.(obj_int)
+						if !ok {
+							log.Print("ERROR:def dict token not a obj_int")
+							return result, errors.New("ERROR:def dict token not a obj_int")
+						}
+						cspacerange.CMapType = i
+					default:
+						log.Printf("ERROR:def token unkown %s\n", key)
+						return result, errors.New("ERROR:def token unkown")
+					}
+				case "pop":
+					//TODO(elias): find out what this should be doing exactly.
+					childs := obj_to_close[len(obj_to_close)-1].childs
+					childs, o_defineresource := Pop(childs)
+					childs, o_cmap := Pop(childs)
+					childs, o_current := Pop(childs)
+					childs, o_cmapname := Pop(childs)
+					if defineresource, ok := o_defineresource.Type.(string); !ok || defineresource != "defineresource" {
+						log.Printf("ERROR:pop expected defineresource, found %v\n", o_defineresource)
+						return result, errors.New("ERROR:def token unkown")
+					}
+					if cmap, ok := o_cmap.Type.(obj_named); !ok || cmap != "CMap" {
+						log.Printf("ERROR:pop expected CMap, found %v\n", o_cmap)
+						return result, errors.New("ERROR:def token unkown")
+					}
+					if currentdict, ok := o_current.Type.(string); !ok || currentdict != "currentdict" {
+						log.Printf("ERROR:pop expected currentdict, found %v\n", o_current)
+						return result, errors.New("ERROR:def token unkown")
+					}
+					if cmapname, ok := o_cmapname.Type.(string); !ok || cmapname != "CMapName" {
+						log.Printf("ERROR:pop not defineresource %v\n", o_defineresource)
+						return result, errors.New("ERROR:def token unkown")
+					}
+					obj_to_close[len(obj_to_close)-1].childs = childs
+				case "beginbfchar", "beginbfrange", "begincodespacerange":
+					obj_to_close[len(obj_to_close)-1].childs, _ = Pop(obj_to_close[len(obj_to_close)-1].childs)
+					obj_to_close = AppendCloseObj(obj_to_close, obj{token, line_index + 1, col + 1})
+				case "begin":
+					childs, o_res := Pop(obj_to_close[len(obj_to_close)-1].childs)
+					key, ok := o_res.Type.(string)
+					if !ok {
+						log.Print("ERROR:begin token not an named")
+						log.Printf("%v", o_res)
+					}
+					switch key {
+					case "dict":
+						childs, o_value := Pop(obj_to_close[len(obj_to_close)-1].childs)
+						obj_to_close[len(obj_to_close)-1].childs = childs
+						_, ok := o_value.Type.(obj_int) // there is no use for this for now?
+						if ok {
+							log.Print("ERROR:begin dict dict token not an obj_int")
+							return result, errors.New("ERROR:def dict token not an obj_int")
+						}
+						dict_begin = true
+					case "findresource":
+						childs, o_named2 := Pop(childs)
+						childs, o_named1 := Pop(childs)
+						obj_to_close[len(obj_to_close)-1].childs = childs
+						_, ok := o_named2.Type.(obj_named) // there is no use for this for now?
+						if !ok {
+							log.Print("ERROR:begin findresource token not a obj_named")
+							return result, errors.New("ERROR:dbegin findresource token not a obj_named")
+						}
+						_, ok = o_named1.Type.(obj_named) // there is no use for this for now?
+						if !ok {
+							log.Print("ERROR:begin findresource  token not a obj_named")
+							return result, errors.New("ERROR:begin findresource token not a obj_named")
+						}
+						obj_to_close = AppendCloseObj(obj_to_close, obj{obj_resources{}, line_index + 1, col + 1})
+					default:
+						log.Printf("ERROR:begin token unkown %s\n", key)
+						return result, errors.New("ERROR:begin findresource token not a obj_named")
+					}
+				case "endcmap", "begincmap":
+				case "end":
+					if !dict_begin {
+						var oc close_obj
+						obj_to_close, oc = RemoveCloseObj(obj_to_close)
+						resource, ok := oc.obj.Type.(obj_resources)
+						if !ok {
+							log.Panicln("Not REsources!")
+						}
+						result.Resources = append(result.Resources, resource)
+					}
+					dict_begin = false
+				case "endbfrange":
+					endbfchar, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(string)
+					if !ok || endbfchar != "beginbfrange" {
+						_str := fmt.Sprintf("Expected %s(%v), found `endbfrange`\n", typeStr(obj_to_close[len(obj_to_close)-1].obj), obj_to_close[len(obj_to_close)-1].obj)
+						log.Printf(_str)
+						return result, errors.New(_str)
+					}
+					var oc close_obj
+					obj_to_close, oc = RemoveCloseObj(obj_to_close)
+
+					childs := oc.childs
+					if len(childs)%3 != 0 {
+						_str := fmt.Sprintf("bfchar should olnly contain a three pdf obj of char codepoints\n%v\n", childs)
+						log.Printf(_str)
+						return result, errors.New(_str)
+					}
+					bfranges := make([]obj_bfrange, len(childs)/3)
+
+					for len(childs) > 0 {
+						var o_bfchar1, o_bfchar2, o_bfchar3 obj
+						childs, o_bfchar3 = Pop(childs)
+						childs, o_bfchar2 = Pop(childs)
+						childs, o_bfchar1 = Pop(childs)
+
+						bfchar1, ok1 := o_bfchar1.Type.(obj_codechar)
+						bfchar2, ok2 := o_bfchar2.Type.(obj_codechar)
+						if !ok1 || !ok2 {
+							log.Panicln("ERROR: token not an codechar: 1", ok1, o_bfchar1, o_bfchar2)
+						}
+						bfranges = append(bfranges, obj_bfrange{start: bfchar1, end: bfchar2})
+						switch v := o_bfchar3.Type.(type) {
+						case obj_codechar:
+							bfranges[len(bfranges)-1].dest_codechar = v
+						case obj_array:
+							for i := range v {
+								if codechar, ok := v[i].Type.(obj_codechar); ok {
+									bfranges[len(bfranges)-1].dest_array = append(bfranges[len(bfranges)-1].dest_array, codechar)
+								}
+							}
+						default:
+							log.Panicf("Failend to match the obj for %v, in the bfrange\n", o_bfchar3.Type)
+						}
+					}
+				case "endbfchar":
+					endbfchar, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(string)
+					if !ok || endbfchar != "beginbfchar" {
+						_str := fmt.Sprintf("Expected %s(%v), found `endbfchar`\n", typeStr(obj_to_close[len(obj_to_close)-1].obj), obj_to_close[len(obj_to_close)-1].obj)
+						log.Printf(_str)
+						return result, errors.New(_str)
+					}
+
+					var oc close_obj
+					obj_to_close, oc = RemoveCloseObj(obj_to_close)
+					childs := oc.childs
+					if len(childs)%2 != 0 {
+						_str := fmt.Sprintf("bfchar should olnly contain a key value sequence of char codepoints\n%v\n", childs)
+						log.Printf(_str)
+						return result, errors.New(_str)
+					}
+
+					bfchars := make(obj_bfchar, len(childs)/2)
+					for len(childs) > 0 {
+						var o_bfchar1, o_bfchar2 obj
+						childs, o_bfchar2 = Pop(childs)
+						childs, o_bfchar1 = Pop(childs)
+						bfchar1, ok1 := o_bfchar1.Type.(obj_codechar)
+						bfchar2, ok2 := o_bfchar2.Type.(obj_codechar)
+						if !ok1 || !ok2 {
+							log.Print("ERROR: token not an codechar: 1", ok1, o_bfchar1, o_bfchar2)
+						}
+						bfchars[bfchar1] = bfchar2
+					}
+
+					cspacerange, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_resources)
+					if !ok {
+						_str := fmt.Sprintf("Expected %s, found `endconge`\n", typeStr(obj_to_close[len(obj_to_close)-1].obj))
+						log.Printf(_str)
+						return result, errors.New(_str)
+					}
+					cspacerange.CodeSpace.bfchars = bfchars
+					obj_to_close[len(obj_to_close)-1].obj.Type = cspacerange
+				case "endcodespacerange":
+					endcoderange, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(string)
+					if !ok || endcoderange != "begincodespacerange" {
+						_str := fmt.Sprintf("Expected %s(%v), found `endcodespacerange`\n", typeStr(obj_to_close[len(obj_to_close)-1].obj), obj_to_close[len(obj_to_close)-1].obj)
+						log.Printf(_str)
+						return result, errors.New(_str)
+					}
+					var oc close_obj
+					obj_to_close, oc = RemoveCloseObj(obj_to_close)
+
+					childs, o_crange2 := Pop(oc.childs)
+					childs, o_crange1 := Pop(childs)
+					oc.childs = childs
+
+					crange1, ok1 := o_crange1.Type.(obj_codechar)
+					crange2, ok2 := o_crange2.Type.(obj_codechar)
+					if !ok1 || !ok2 {
+						log.Println("ERROR: token not an named: 1", ok1)
+						log.Println(o_crange1)
+						log.Println(o_crange2)
+						return result, errors.New("ERROR: token not an named: 1")
+					}
+
+					cspacerange, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_resources)
+					if !ok {
+						_str := fmt.Sprintf("Expected %s, found `endcoderange`\n", typeStr(obj_to_close[len(obj_to_close)-1].obj))
+						log.Printf(_str)
+						return result, errors.New(_str)
+					}
+					cspacerange.CodeSpace.codespacerange[0] = crange1
+					cspacerange.CodeSpace.codespacerange[1] = crange2
+					obj_to_close[len(obj_to_close)-1].obj.Type = cspacerange
 				case "false":
 					//- boolean false
 					obj_to_close = AppendChild(obj_to_close, obj{obj_bool(false), line_index + 1, col + 1 + before_token_len})
@@ -831,12 +1130,11 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 						childs := obj_to_close[len(obj_to_close)-1].childs
 						var err error
 						childs, err = handle_operator(childs, token, result.color_space)
+						obj_to_close[len(obj_to_close)-1].childs = childs
 						if err != nil {
 							return result, err
 						}
-						obj_to_close[len(obj_to_close)-1].childs = childs
 					}
-
 				case "f", "n":
 					_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_xref)
 					if ok {
@@ -848,7 +1146,6 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 				case "ID":
 					// NOTE(elias): inline iamge. It is analogus to an obj_stream with BI ID EI.
 					// This will most likely be a source o problems later…
-
 					if len(obj_to_close) > 0 {
 						_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_bi)
 						if ok {
@@ -886,30 +1183,11 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 							}
 
 							if err != nil { // should only be used by xref? last character n and f
-								if len(obj_to_close) >= 0 {
-									log.Printf("TOKEN:%d:%d [%s]\n", line_index+1, col+1, token)
-								}
-								_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_xref)
-								if ok {
-									if len(token) == 1 && (token[0] == 'f' || token[0] == 'n') {
-										_, ok := obj_to_close[len(obj_to_close)-1].obj.Type.(obj_xref)
-										if ok {
-											childs, m_ := Pop(obj_to_close[len(obj_to_close)-1].childs)
-											childs, n_ := Pop(childs)
-											obj_to_close[len(obj_to_close)-1].childs = childs
-
-											n, ok1 := n_.Type.(obj_int)
-											m, ok2 := m_.Type.(obj_int)
-											if ok1 && ok2 {
-												o := obj{xref_ref{n, m, token}, m_.line, m_.col}
-												obj_to_close = AppendChild(obj_to_close, o)
-											} else {
-												log.Print("ERROR: token not an integer: 1", ok1, "2", ok2)
-											}
-										}
-									}
-
-								}
+								// TODO(elias): check why some stream get here.
+								// NOTE(elias): when there is a resource stream, those streing show up.
+								// add everything and check latter what it is.
+								// case "beginbfchar", "beginbfrange", "begincoderange", "findresource", "CMapName", "currentdict", "defineresource", "dict":
+								obj_to_close = AppendChild(obj_to_close, obj{token, line_index + 1, col + 1})
 							}
 						}
 					}
@@ -938,7 +1216,7 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 		}
 	}
 
-	//add a mark  to the FontFile obj
+	//add a metadata to the FontFile obj
 	for _, f := range fontfile {
 		for i := range result.objs {
 			ind, ok := result.objs[i].Type.(obj_ind)
@@ -951,75 +1229,98 @@ func Parse(doc []byte, color_spacce obj_dict) (pdf, error) {
 		}
 	}
 
-	for _, i := range to_parse {
-		o_ind := result.objs[i]
-		ind, ok := o_ind.Type.(obj_ind)
-		if ok {
-			dict := ind.metadata
-			ref, ok := dict["Length"].Type.(obj_ref)
-			var length int
-			if !ok {
-				length = len(ind.stream.encoded_content)
-				if length == 0 {
-					length = len(ind.stream.decoded_content)
-				}
-				ok = true
-			} else {
-				o_ind_length, err := get_obj_by_id(result.objs, ref.id)
-				if err != nil {
-					log.Fatalf("failed to get id for delayed stream decode length id: %v\n", ind)
-				}
-				ind_length, _ := o_ind_length.Type.(obj_ind)
-				length_, ok_ := ind_length.objs[len(ind_length.objs)-1].Type.(obj_int)
-				ok = ok_
-				length = int(length_)
-			}
+	//find resources
+	if len(to_parse) > 0 {
+		var index int
+		for index < len(to_parse) {
+			i := to_parse[index]
+			o_ind := result.objs[i]
+			ind, ok := o_ind.Type.(obj_ind)
 			if ok {
-				stream := ind.stream
-				t, ok := ind.metadata["Type"].Type.(obj_named)
-				if len(ind.stream.encoded_content) > 0 && string(t) != "Metadata" {
-					str := stream.encoded_content
-					if int(length) != len(str) {
-						log.Fatalln("failed to get id for delayed stream decode; length mismatch")
+				dict := ind.metadata
+				ref, ok_length := dict["Length"].Type.(obj_ref)
+				var length int
+				if !ok_length {
+					length = len(ind.stream.encoded_content)
+					if length == 0 {
+						length = len(ind.stream.decoded_content)
 					}
-					r, err := zlib.NewReader(bytes.NewReader(str))
+					ok_length = true
+				} else {
+					o_ind_length, err := get_obj_by_id(result.objs, ref.id)
 					if err != nil {
-						return result, errors.New(fmt.Sprintf("failled to decode stream of obj %d:%d %v", ind.id, ind.mod_id, err))
+						log.Fatalf("failed to get id for delayed stream decode length id: %v\n", ind)
 					}
-					stream.decoded_content, err = io.ReadAll(r)
-					if err != nil {
-						return result, errors.New(fmt.Sprintf("failled to readall:%d: %v", line_index+1, err))
+					ind_length, _ := o_ind_length.Type.(obj_ind)
+					length_, ok_ := ind_length.objs[len(ind_length.objs)-1].Type.(obj_int)
+					ok_length = ok_
+					length = int(length_)
+				}
+				var Type string
+				t, _ok := ind.metadata["Type"].Type.(obj_named)
+				if _ok {
+					Type = string(t)
+				}
+				if ok_length && len(ind.stream.decoded_content) == 0 {
+					if len(ind.stream.encoded_content) > 0 && string(t) != "Metadata" {
+						str := ind.stream.encoded_content
+						if int(length) != len(str) {
+							log.Fatalln("failed to get id for delayed stream decode; length mismatch")
+						}
+						r, err := zlib.NewReader(bytes.NewReader(str))
+						if err != nil {
+							return result, errors.New(fmt.Sprintf("failled to decode stream of obj %d:%d %v", ind.id, ind.mod_id, err))
+						}
+						ind.stream.decoded_content, err = io.ReadAll(r)
+						if err != nil {
+							return result, errors.New(fmt.Sprintf("failled to readall:%d: %v", line_index+1, err))
+						}
 					}
+					result.objs[i].Type = ind
 				}
 				{
-					if !ok || (string(t) != "FontDescriptor" && string(t) != "Metadata") {
-						_pdf, err := Parse(stream.decoded_content, result.color_space)
-						for _, o := range _pdf.objs {
-							switch t := o.Type.(type) {
-							case obj_strl:
-								result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
-							case obj_strh:
-								result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
-							case obj_int, obj_real:
-							default:
-							}
-						}
+					if len(Type) < 0 || (Type != "FontDescriptor" && Type != "Metadata" && Type != "XRef" && !strings.HasPrefix(Type, "FontFile")) {
+						_pdf, err := Parse(ind.stream.decoded_content, result.color_space, result.Resources)
 
-						if err != nil {
+						if err != nil && err.Error() != "SKIP" {
 							log.Printf("%s", err)
 							return result, err
 						}
-						stream.objs = _pdf.objs
+						ind.stream.objs = _pdf.objs
+						result.objs[i].Type = ind
+						if len(_pdf.Resources) > 0 {
+							for _, r := range _pdf.Resources {
+								result.Resources = append(result.Resources, r)
+							}
+							newindex := make([]obj_int, len(to_parse)-1)
+							copy(newindex, to_parse[:index])
+							copy(newindex[index:], to_parse[index+1:])
+							to_parse = newindex
+							index = 0
+							continue
+						}
 					}
-					ind.stream = stream
-					o_ind.Type = ind
-					result.objs[i] = o_ind
-
+				}
+			}
+			index++
+		}
+		for _, o := range result.objs {
+			if ind, ok := o.Type.(obj_ind); ok {
+				for _, _o := range ind.stream.objs {
+					switch t := _o.Type.(type) {
+					case obj_str:
+						result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
+					case obj_strl:
+						result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
+					case obj_strh:
+						result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
+					case obj_int, obj_real:
+					default:
+					}
 				}
 			}
 		}
 	}
-	to_parse = nil
 
 	return result, nil
 }

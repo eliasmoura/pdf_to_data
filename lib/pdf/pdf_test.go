@@ -227,7 +227,7 @@ func TestLineComment(t *testing.T) {
 	txt := strings.Split(str, "\n")
 	c_comment := obj{Type: obj_comment(txt[1][1:])}
 	log.SetPrefix("TestLineComment: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v`, c_comment.Type, err)
 		t.Fail()
@@ -243,7 +243,7 @@ func TestEOF(t *testing.T) {
 	txt := strings.Split(str, "\n")
 	c_eof := obj{Type: obj_eof(txt[1][2:])}
 	log.SetPrefix("TestEOF: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v`, c_eof.Type, err)
 		t.Fail()
@@ -259,7 +259,7 @@ func TestInt(t *testing.T) {
 %%EOF`
 	c_int := obj{Type: obj_int(10)}
 	log.SetPrefix("TestInt: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_int, err)
 		t.Fail()
@@ -275,7 +275,7 @@ func TestReal(t *testing.T) {
 %%EOF`
 	c_real := obj{Type: obj_real(10.5)}
 	log.SetPrefix("TestReal: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_real, err)
 		t.Fail()
@@ -292,7 +292,7 @@ func TestArray(t *testing.T) {
 	c_array := obj{obj_array{obj{obj_int(0), 1, 2},
 		obj{obj_int(1), 1, 4}, obj{obj_int(2), 1, 6}}, 1, 1}
 	log.SetPrefix("TestArray: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_array.Type, err)
 		t.Fail()
@@ -308,7 +308,7 @@ func TestNamedObj(t *testing.T) {
 %%EOF`
 	c_named := obj{obj_named("myName"), 1, 1}
 	log.SetPrefix("TestNamedObj: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_named, err)
 		t.Fail()
@@ -327,7 +327,7 @@ func TestDict(t *testing.T) {
 			"Myname": obj{obj_named("k0tto"), 2, 13},
 			"Age":    obj{obj_int(2), 2, 24}}, 1, 1}
 	log.SetPrefix("TestDict: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_dict.Type, err)
 		t.Fail()
@@ -344,7 +344,7 @@ func TestRef(t *testing.T) {
 	c_ref := obj{obj_ref{obj_int(0),
 		obj_int(1)}, 1, 1}
 	log.SetPrefix("TestRef: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_ref.Type, err)
 		t.Fail()
@@ -362,7 +362,7 @@ endobj
 	c_obj := obj{obj_ind{id: obj_int(0),
 		mod_id: obj_int(1), objs: nil}, 1, 1}
 	log.SetPrefix("TestIndEmpty: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_obj.Type, err)
 		t.Fail()
@@ -380,7 +380,7 @@ func TestStrl(t *testing.T) {
 	t_txt := strings.Trim(txt[1], "()")
 	c_strl := obj{obj_strl(t_txt), 1, 1}
 	log.SetPrefix("TestStrl: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_strl.Type, err)
 		t.Fail()
@@ -407,7 +407,7 @@ func TestStrh(t *testing.T) {
 	lstr += str[index_r:]
 
 	c_strh := obj{obj_strh(str[index_l:index_r]), 1, 1}
-	pdf, err := Parse([]byte(lstr), nil)
+	pdf, err := Parse([]byte(lstr), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_strh.Type, err)
 		t.Fail()
@@ -423,7 +423,7 @@ true
 %%EOF`
 	c_true := obj{obj_bool(true), 1, 1}
 	log.SetPrefix("TestBool: ")
-	pdf, err := Parse([]byte(str_true), nil)
+	pdf, err := Parse([]byte(str_true), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_true.Type, err)
 		t.Fail()
@@ -436,7 +436,7 @@ true
 false
 %%EOF`
 	c_false := obj{obj_bool(false), 1, 1}
-	pdf2, err := Parse([]byte(str_false), nil)
+	pdf2, err := Parse([]byte(str_false), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_false.Type, err)
 		t.Fail()
@@ -452,7 +452,7 @@ null
 %%EOF`
 	c_null := obj{obj_null(nil), 1, 1}
 	log.SetPrefix("TestNull: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_null.Type, err)
 		t.Fail()
@@ -477,7 +477,7 @@ endobj
 		stream:   obj_stream{},
 	}, 0, 0}
 	log.SetPrefix("TestStreamEmpty: ")
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_stream.Type, err)
 		t.Fail()
@@ -542,7 +542,7 @@ endobj
 		"Age":    obj{obj_int(2), 2, 25}}
 	c_obj := obj{obj_ind{id: obj_int(0),
 		mod_id: obj_int(1), metadata: c_dict}, 1, 1}
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_obj.Type, err)
 		t.Fail()
@@ -583,7 +583,7 @@ endobj
 		id: obj_int(4), mod_id: obj_int(0),
 		metadata: cdict},
 		0, 0}
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_obj.Type, err)
 		t.Fail()
@@ -629,7 +629,7 @@ startxref
 		obj_int(0), refs,
 		dict, obj_int(625)},
 		0, 0}
-	pdf, err := Parse([]byte(str), nil)
+	pdf, err := Parse([]byte(str), nil, nil)
 	if err != nil {
 		log.Printf(`Failed to parse valid pdf %T object. %v\n`, c_obj.Type, err)
 		t.Fail()

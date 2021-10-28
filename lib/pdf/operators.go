@@ -114,14 +114,37 @@ func handle_operator(objs []obj, operator string, color_space obj_dict) ([]obj, 
 	case "TJ":
 		var o obj
 		objs, o = Pop(objs)
+		result := obj_str("")
 		array, ok := o.Type.(obj_array)
 		if ok {
 			for _, o := range array {
-				switch o.Type.(type) {
-				case obj_strl, obj_strh:
-					objs = Append(objs, o)
+				switch val := o.Type.(type) {
+				case obj_strl:
+					// objs = Append(objs, o)
+					result += obj_str(val)
+				case obj_strh:
+					result += obj_str(val)
+				case obj_real:
+					if int(val) < -200 && int(val) > -450 {
+						result += " "
+					} else {
+						if int(val) < -500 {
+							objs = append(objs, obj{result, 0, 0})
+							result = ""
+						}
+					}
+				case obj_int:
+					if int(val) < -200 && int(val) > -450 {
+						result += " "
+					} else {
+						if int(val) < -500 {
+							objs = append(objs, obj{result, 0, 0})
+							result = ""
+						}
+					}
 				}
 			}
+			objs = append(objs, obj{result, 0, 0})
 		}
 		return objs, nil
 	case "'":

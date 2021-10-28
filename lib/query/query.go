@@ -192,7 +192,7 @@ func RunQuery(ops []op, data []string) ([][]string, error) {
 				if data_index == len(data) {
 					return result, errors.New("ERROR: EOF at op_jump")
 				}
-				if string(val) != data[data_index] {
+				if data_index < len(data) && string(val) != data[data_index] {
 					iq = int(op.Label)
 				}
 			case op_condition_index:
