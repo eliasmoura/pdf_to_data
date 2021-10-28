@@ -144,46 +144,6 @@ func typeStr(t obj) string {
 	}
 }
 
-func AppendCloseObj(c []close_obj, data obj) []close_obj {
-	m := len(c)
-	if m == cap(c) { // if necessary, reallocate
-		// allocate double what's needed, for future growth.
-		newSlice := make([]close_obj, (m+1)*2)
-		copy(newSlice, c)
-		c = newSlice
-	}
-	c = c[0 : m+1]
-	c[m] = close_obj{data, nil}
-	return c
-}
-
-func Append(slice []obj, data ...obj) []obj {
-	m := len(slice)
-	n := m + len(data)
-	if n > cap(slice) { // if necessary, reallocate
-		// allocate double what's needed, for future growth.
-		newSlice := make([]obj, (n+1)*2)
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:n]
-	copy(slice[m:n], data)
-	return slice
-}
-
-func AppendRef(slice []xref_ref, data ...xref_ref) []xref_ref {
-	m := len(slice)
-	n := m + len(data)
-	if n > cap(slice) { // if necessary, reallocate
-		// allocate double what's needed, for future growth.
-		newSlice := make([]xref_ref, (n+1)*2)
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:n]
-	copy(slice[m:n], data)
-	return slice
-}
 
 var delimiters = []byte{'(', ')', '<', '>', '[', ']', '{', '}', '/', '%', ' ', '\n', ''}
 
@@ -248,26 +208,6 @@ func read_strh(txt []byte) (string, error) {
 	return string(txt), errors.New("EOF")
 }
 
-func read_until(txt []byte, ch string) ([]byte, error) {
-	to_balance := 0
-	for i := range txt {
-		if txt[i] == '>' && txt[i+1] == '>' {
-			to_balance--
-			if to_balance > 0 {
-				return nil, errors.New("Could not find the matching `>>`\n")
-			}
-			if i == 0 {
-				return []byte{txt[0]}, nil
-			}
-			return txt[0:i], nil
-		}
-		if txt[i] == '<' && txt[i+1] == '<' {
-			to_balance++
-		}
-	}
-	return txt, errors.New("EOF")
-}
-
 func index_from_bread(lines []line, bread int) (int, error) {
 	for i := range lines {
 		if lines[i].end >= bread && lines[i].start <= bread {
@@ -289,22 +229,6 @@ func RemoveCloseObj(c []close_obj) ([]close_obj, close_obj) {
 	return c, o
 }
 
-func DecreaseCloseObj(c []close_obj, n int) []close_obj {
-	c_len := len(c)
-	s2 := len(c[c_len-1].childs)
-	dec := s2 - n
-	if dec >= 0 {
-		if dec > 0 {
-			c[c_len-1].childs = c[c_len-1].childs[:dec]
-		} else {
-			c, _ = RemoveCloseObj(c)
-		}
-	} else {
-		log.Fatalln("ERROR: should be adding to the obj_to_close insted of going negative--")
-	}
-	return c
-}
-
 func Pop(objs []obj) ([]obj, obj) {
 	m := len(objs)
 	if m == 0 {
@@ -317,13 +241,13 @@ func Pop(objs []obj) ([]obj, obj) {
 
 func AppendChild(c []close_obj, o obj) []close_obj {
 	if len(c) == 0 {
-		c = AppendCloseObj(c, obj{nil, 0, 0})
+		c = append(c, close_obj{obj{nil, 0, 0},nil})
 	}
-	c[len(c)-1].childs = Append(c[len(c)-1].childs, o)
+	c[len(c)-1].childs = append(c[len(c)-1].childs, o)
 	return c
 }
 
-func get_token_str(t obj, close bool) string {
+func get_obj_token_str(t obj, close bool) string {
 	switch v := t.Type.(type) {
 	case obj_ind:
 		if close {
@@ -441,18 +365,6 @@ func read_until_EI(txt []byte) (int, error) {
 	return 0, errors.New("Coulds not find `endstream`")
 }
 
-func AppendText(text []string, str string) []string {
-	m := len(text)
-	if m == cap(text) {
-		newlines := make([]string, m, (m+1)*2)
-		copy(newlines, text)
-		text = newlines
-	}
-	text = text[:m+1]
-	text[m] = str
-	return text
-}
-
 func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, error) {
 	var obj_to_close []close_obj
 	line_index := 0
@@ -559,7 +471,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 							} else {
 
 								for _, o := range obj_to_close[len(obj_to_close)-1].childs {
-									result.objs = Append(result.objs, o)
+									result.objs = append(result.objs, o)
 								}
 								obj_to_close, _ = RemoveCloseObj(obj_to_close)
 							}
@@ -592,7 +504,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					if len(obj_to_close) > 0 {
 						obj_to_close = AppendChild(obj_to_close, o)
 					} else {
-						result.objs = Append(result.objs, o)
+						result.objs = append(result.objs, o)
 					}
 				case ")":
 					objc = obj{obj_strl(""), line_index + 1, col + 1 + before_token_len}
@@ -600,7 +512,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					//- <<…>> denotes a dictionary like
 					//  <</Type /Example >>
 					o := obj{obj_dict{}, line_index + 1, col + 1 + before_token_len}
-					obj_to_close = AppendCloseObj(obj_to_close, o)
+					obj_to_close = append(obj_to_close, close_obj{o,nil})
 				case ">>":
 					o := obj_to_close[len(obj_to_close)-1].obj
 					dict, ok := o.Type.(obj_dict)
@@ -765,7 +677,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 				case "[":
 					//- [] denotes an array like [32 12.5 false (txt) /this]
 					o := obj{obj_array{}, line_index + 1, col + 1 + before_token_len}
-					obj_to_close = AppendCloseObj(obj_to_close, o)
+					obj_to_close = append(obj_to_close, close_obj{o,nil})
 				case "]":
 					objc = obj{obj_array{}, line_index + 1, col + 1 + before_token_len}
 					oc := obj_to_close[len(obj_to_close)-1]
@@ -776,7 +688,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					obj_to_close, oc = RemoveCloseObj(obj_to_close)
 					childs := oc.childs
 					for _, c := range childs {
-						o = Append(o, c)
+						o = append(o, c)
 					}
 					closed_obj = obj{o, oc.obj.line + 1, oc.obj.col + 1 + before_token_len}
 				case "obj":
@@ -794,7 +706,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 						log.Print("ERROR: token not an integer: 1", ok1, "2", ok2)
 					}
 					o := obj{obj_ind{id: id_val, mod_id: mod_id_val, objs: nil}, line_index + 1, col + 1 + before_token_len}
-					obj_to_close = AppendCloseObj(obj_to_close, o)
+					obj_to_close = append(obj_to_close, close_obj{o,nil})
 				case "endobj":
 					objc = obj{obj_ind{}, line_index + 1, col + 1 + before_token_len}
 					oc := obj_to_close[len(obj_to_close)-1]
@@ -814,7 +726,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 						case obj_stream:
 							ind.stream = t
 						default:
-							ind.objs = Append(ind.objs, c)
+							ind.objs = append(ind.objs, c)
 						}
 					}
 					closed_obj = obj{ind, oc.obj.line, oc.obj.col}
@@ -933,7 +845,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					obj_to_close[len(obj_to_close)-1].childs = childs
 				case "beginbfchar", "beginbfrange", "begincodespacerange":
 					obj_to_close[len(obj_to_close)-1].childs, _ = Pop(obj_to_close[len(obj_to_close)-1].childs)
-					obj_to_close = AppendCloseObj(obj_to_close, obj{token, line_index + 1, col + 1})
+					obj_to_close = append(obj_to_close, close_obj{obj{token, line_index + 1, col + 1},nil})
 				case "begin":
 					childs, o_res := Pop(obj_to_close[len(obj_to_close)-1].childs)
 					key, ok := o_res.Type.(string)
@@ -965,7 +877,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 							log.Print("ERROR:begin findresource  token not a obj_named")
 							return result, errors.New("ERROR:begin findresource token not a obj_named")
 						}
-						obj_to_close = AppendCloseObj(obj_to_close, obj{obj_resources{}, line_index + 1, col + 1})
+						obj_to_close = append(obj_to_close, close_obj{obj{obj_resources{}, line_index + 1, col + 1},nil})
 					default:
 						log.Printf("ERROR:begin token unkown %s\n", key)
 						return result, errors.New("ERROR:begin findresource token not a obj_named")
@@ -1105,7 +1017,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					//- null obj
 					obj_to_close = AppendChild(obj_to_close, obj{obj_null(nil), line_index + 1, col + 1 + before_token_len})
 				case "xref":
-					obj_to_close = AppendCloseObj(obj_to_close, obj{obj_xref{}, line_index + 1, col + 1 + before_token_len})
+					obj_to_close = append(obj_to_close, close_obj{obj{obj_xref{}, line_index + 1, col + 1 + before_token_len},nil})
 				case "trailer", "startxref":
 					// PDF operators
 					// for more information look at lib/pdf/operator.go
@@ -1142,7 +1054,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 						break
 					}
 				case "BI":
-					obj_to_close = AppendCloseObj(obj_to_close, obj{obj_bi{}, 0, 0})
+					obj_to_close = append(obj_to_close, close_obj{obj{obj_bi{}, 0, 0},nil})
 				case "ID":
 					// NOTE(elias): inline iamge. It is analogus to an obj_stream with BI ID EI.
 					// This will most likely be a source o problems later…
@@ -1201,7 +1113,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 				if len(obj_to_close) > 0 {
 					obj_to_close = AppendChild(obj_to_close, closed_obj)
 				} else {
-					result.objs = Append(result.objs, closed_obj)
+					result.objs = append(result.objs, closed_obj)
 				}
 			}
 		}
@@ -1210,7 +1122,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 	}
 	if len(obj_to_close) > 0 {
 		if result.ver.major != 0 {
-			return result, errors.New(fmt.Sprintf("%%%%EOF found, expected token %v\n", get_token_str(obj_to_close[len(obj_to_close)-1].obj, true)))
+			return result, errors.New(fmt.Sprintf("%%%%EOF found, expected token %v\n", get_obj_token_str(obj_to_close[len(obj_to_close)-1].obj, true)))
 		} else {
 			result.objs = append(result.objs, obj_to_close[0].childs...)
 		}
@@ -1309,11 +1221,11 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 				for _, _o := range ind.stream.objs {
 					switch t := _o.Type.(type) {
 					case obj_str:
-						result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
+						result.Text = append(result.Text, strings.TrimSpace(string(t)))
 					case obj_strl:
-						result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
+						result.Text = append(result.Text, strings.TrimSpace(string(t)))
 					case obj_strh:
-						result.Text = AppendText(result.Text, strings.TrimSpace(string(t)))
+						result.Text = append(result.Text, strings.TrimSpace(string(t)))
 					case obj_int, obj_real:
 					default:
 					}
@@ -1346,144 +1258,4 @@ func get_obj_by_id(objs []obj, id obj_int) (obj, error) {
 
 func init() {
 	log.SetFlags(log.Lshortfile | log.Lmsgprefix)
-}
-
-type p struct {
-	obj obj
-	n   int
-}
-
-func Appendp(slice []p, data ...p) []p {
-	m := len(slice)
-	n := m + len(data)
-	if n > cap(slice) { // if necessary, reallocate
-		// allocate double what's needed, for future growth.
-		newSlice := make([]p, (n+1)*2)
-		copy(newSlice, slice)
-		slice = newSlice
-	}
-	slice = slice[0:n]
-	copy(slice[m:n], data)
-	return slice
-}
-
-func Print_objs(pdf pdf) {
-	var indent int
-	to_close := make([]obj, len(pdf.objs))
-	to_close_ := make([]p, len(to_close))
-	ri := len(pdf.objs) - 1
-	for i := 0; i < len(pdf.objs); i++ {
-		to_close[i] = pdf.objs[ri]
-		ri--
-	}
-	for len(to_close) > 0 {
-		for i := 0; i < indent; i++ {
-			fmt.Print("  ")
-		}
-		var o obj
-		to_close, o = Pop(to_close)
-		switch t := o.Type.(type) {
-		case obj_ind:
-			fmt.Println("\n", t.id, t.mod_id, "obj")
-			fmt.Println(len(t.stream.decoded_content))
-			if len(t.objs) > 0 && len(t.stream.decoded_content) > 0 {
-				ri := len(t.objs) - 1
-				fmt.Println("Has COntent")
-				fmt.Println(t.stream.decoded_content)
-				to_close_ = Appendp(to_close_, p{obj{obj_ind{}, 0, 0}, len(t.stream.objs)})
-				for ; ri >= 0; ri-- {
-					to_close = Append(to_close, t.objs[ri])
-				}
-			}
-			continue
-		case obj_array:
-			fmt.Print(get_token_str(obj{t, 0, 0}, false))
-			if len(t) > 0 {
-				ri := len(t) - 1
-				to_close_ = Appendp(to_close_, p{obj{obj_array{}, 0, 0}, len(t)})
-				for ; ri >= 0; ri-- {
-					to_close = Append(to_close, t[ri])
-				}
-			}
-			continue
-		case obj_dict:
-			fmt.Print(get_token_str(obj{t, 0, 0}, false))
-			if len(t) > 0 {
-				// ri := len(t) - 1
-				to_close_ = Appendp(to_close_, p{obj{t, 0, 0}, len(t)})
-				for key, val := range t {
-					to_close = Append(to_close, obj{Type: obj_named(key)})
-					to_close = Append(to_close, obj{Type: val})
-				}
-			}
-			continue
-		case obj_pair:
-			to_close = Append(to_close, obj{Type: t.value.Type, line: t.value.line, col: t.value.col})
-			to_close = Append(to_close, obj{Type: t.key.Type, line: t.key.line, col: t.key.col})
-			to_close_[len(to_close_)-1].n += 1
-		case obj_ref:
-			fmt.Print(" ", t.id, t.mod_id, " R")
-			to_close_[len(to_close_)-1].n--
-		case obj_strl:
-			fmt.Printf("(%.10s)", string(t))
-			to_close_[len(to_close_)-1].n--
-		case obj_strh:
-			fmt.Printf("<%s>", t)
-			to_close_[len(to_close_)-1].n--
-		case obj_named:
-			fmt.Printf("/%s", t)
-			to_close_[len(to_close_)-1].n--
-		case obj_stream:
-			fmt.Print("\nstream\n")
-			ri := len(t.objs) - 1
-			if ri >= 0 {
-				to_close_ = Appendp(to_close_, p{obj{t, 0, 0}, len(t.objs)})
-				for ; ri >= 0; ri-- {
-					to_close = Append(to_close, t.objs[ri])
-				}
-			}
-			continue
-		case obj_bool:
-			fmt.Printf(" %v", t)
-			to_close_[len(to_close_)-1].n--
-		case obj_int:
-			fmt.Printf(" %v", t)
-			to_close_[len(to_close_)-1].n--
-		case obj_real:
-			fmt.Printf(" %v", t)
-			to_close_[len(to_close_)-1].n--
-		case obj_null:
-			fmt.Printf(" null")
-			to_close_[len(to_close_)-1].n--
-		case obj_comment:
-			// fmt.Printf("%%%v", t)
-			// to_close_[len(to_close_)-1].n--
-		case obj_eof:
-			// fmt.Printf("%s\n", "%%EOF")
-			to_close_[len(to_close_)-1].n--
-		case obj_xref:
-			// fmt.Print("xref\n")
-			// fmt.Printf("%d %d\n", int(t.id), len(t.refs))
-			// tot := len(t.refs) + 1 // + obj_dict
-			// to_close_ = Appendp(to_close_, p{obj{t, 0, 0}, tot})
-			// if len(t.enc) > 0 {
-			// 	to_close = Append(to_close, obj{Type: t.enc})
-			// }
-			// if len(t.refs) > 0 {
-			// 	ri := len(t.refs) - 1
-			// 	for ; ri >= 0; ri-- {
-			// 		to_close = Append(to_close, obj{Type: t.refs[ri]})
-			// 	}
-			// }
-			continue
-		case xref_ref:
-			fmt.Printf("%d %d %s\n", t.n, t.m, t.c)
-			to_close_[len(to_close_)-1].n--
-		default:
-		}
-		if to_close_[len(to_close_)-1].n == 0 {
-			fmt.Printf("%s", get_token_str(to_close_[len(to_close_)-1].obj, true))
-			to_close_ = to_close_[:len(to_close_)-1]
-		}
-	}
 }

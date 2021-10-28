@@ -59,7 +59,7 @@ func handle_xref(objs []obj) (obj_xref, error) {
 		if !ok1 || !ok2 || !ok3 {
 			return xref, errors.New(fmt.Sprintf("ERROR:%d:%d: expect xref ref, found %s[%v]\n", objs[i].line, objs[i].col, typeStr(objs[i]), objs[i].Type))
 		}
-		xref.refs = AppendRef(xref.refs, xref_ref{_1, _2, _3})
+		xref.refs = append(xref.refs, xref_ref{_1, _2, _3})
 	}
 
 	return xref, nil
