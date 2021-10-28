@@ -10,53 +10,47 @@ import (
 )
 
 func TestPDF(t *testing.T) {
-  t.SkipNow()
-	filepath := "../sample/test.pdf"
+	filepath := "../sample/pdf_example.pdf"
 	file, err := ioutil.ReadFile(filepath)
 	if err != nil {
-	log.Printf("Trying to parse: %s\n", filepath)
+		log.Printf("Trying to parse: %s\n", filepath)
 		log.Fatalln(err)
 	}
-	_, err = pdf_parser.Parse(file, nil)
+	_, err = pdf_parser.Parse(file, nil, nil)
 	if err != nil {
-	log.Printf("Trying to parse: %s\n", filepath)
+		log.Printf("Trying to parse: %s\n", filepath)
 		log.Println(err)
 		t.Fail()
 	}
 }
 
 func TestQuery(t *testing.T) {
-  t.SkipNow()
-	filepath := "../sample/bank_account.pdf"
+	filepath := "../sample/pdf_example.pdf"
 	file, err := ioutil.ReadFile(filepath)
 	if err != nil {
-	log.Printf("Trying to parse: %s\n", filepath)
+		log.Printf("Trying to parse: %s\n", filepath)
 		log.Fatalln(err)
 	}
-	pdf, err := pdf_parser.Parse(file, nil)
+	pdf, err := pdf_parser.Parse(file, nil, nil)
 	if err != nil {
-	log.Printf("Trying to parse: %s\n", filepath)
+		log.Printf("Trying to parse: %s\n", filepath)
 		fmt.Print(err)
 		t.Fail()
 	}
-	arg := `@"SALDO INICIAL"+1[4@"SALDO FINAL"]`
+	arg := `@"START"+1[3@"END"]`
 	q, err := query.ParseQuery(arg)
 	if err != nil {
-	log.Printf("Trying to parse: %s\n", filepath)
+		log.Printf("Trying to parse: %s\n", filepath)
 		log.Fatalln(err)
 	}
 	result, err := query.RunQuery(q, pdf.Text)
-	for _, l := range result {
-		for el := range l {
-			fmt.Print(el)
-			if el < len(l)-2 {
-				fmt.Print("\t")
-			}
-		}
-		fmt.Println()
-	}
 	if err != nil {
-	log.Printf("Trying to parse: %s\n", filepath)
-		log.Fatalf("Query `%s` did not find any entry\n", err)
+		log.Printf("Trying to parse: %s\n", filepath)
+		log.Printf("Query `%s` did not find any entry\n", err)
+		t.FailNow()
+	}
+	if result[0][1] != "Some Stuff" || result[2][0] != "10-3" {
+		log.Printf("Result did not return rexpected data.\n")
+		t.FailNow()
 	}
 }
