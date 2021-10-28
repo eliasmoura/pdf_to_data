@@ -99,7 +99,7 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	pdf, err := pdf_parser.Parse(file, nil)
+	pdf, err := pdf_parser.Parse(file, nil, nil)
 	if err != nil {
 		fmt.Print(err)
 		os.Exit(1)
@@ -108,7 +108,7 @@ func main() {
 	switch cmd {
 	case list:
 		for j, v := range pdf.Text {
-			fmt.Printf("%4d: %s\n", j, v)
+			fmt.Printf("%4d: [%s]\n", j, v)
 		}
 	case cmd_query:
 		q, err := query.ParseQuery(arg)
@@ -117,7 +117,13 @@ func main() {
 		}
 		result, err := query.RunQuery(q, pdf.Text)
 		for _, l := range result {
-			fmt.Println(l)
+			for i, el := range l {
+				fmt.Print(el)
+				if i < len(l)-1 {
+					fmt.Print("\t")
+				}
+			}
+			fmt.Println()
 		}
 		if err != nil {
 			log.Fatalf("Query `%s` did not find any entry\n", err)
