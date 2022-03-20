@@ -144,7 +144,6 @@ func typeStr(t obj) string {
 	}
 }
 
-
 var delimiters = []byte{'(', ')', '<', '>', '[', ']', '{', '}', '/', '%', ' ', '\n', ''}
 
 func get_token(txt []byte, byte ...interface{}) (string, int) {
@@ -241,7 +240,7 @@ func Pop(objs []obj) ([]obj, obj) {
 
 func AppendChild(c []close_obj, o obj) []close_obj {
 	if len(c) == 0 {
-		c = append(c, close_obj{obj{nil, 0, 0},nil})
+		c = append(c, close_obj{obj{nil, 0, 0}, nil})
 	}
 	c[len(c)-1].childs = append(c[len(c)-1].childs, o)
 	return c
@@ -512,7 +511,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					//- <<…>> denotes a dictionary like
 					//  <</Type /Example >>
 					o := obj{obj_dict{}, line_index + 1, col + 1 + before_token_len}
-					obj_to_close = append(obj_to_close, close_obj{o,nil})
+					obj_to_close = append(obj_to_close, close_obj{o, nil})
 				case ">>":
 					o := obj_to_close[len(obj_to_close)-1].obj
 					dict, ok := o.Type.(obj_dict)
@@ -677,7 +676,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 				case "[":
 					//- [] denotes an array like [32 12.5 false (txt) /this]
 					o := obj{obj_array{}, line_index + 1, col + 1 + before_token_len}
-					obj_to_close = append(obj_to_close, close_obj{o,nil})
+					obj_to_close = append(obj_to_close, close_obj{o, nil})
 				case "]":
 					objc = obj{obj_array{}, line_index + 1, col + 1 + before_token_len}
 					oc := obj_to_close[len(obj_to_close)-1]
@@ -706,7 +705,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 						log.Print("ERROR: token not an integer: 1", ok1, "2", ok2)
 					}
 					o := obj{obj_ind{id: id_val, mod_id: mod_id_val, objs: nil}, line_index + 1, col + 1 + before_token_len}
-					obj_to_close = append(obj_to_close, close_obj{o,nil})
+					obj_to_close = append(obj_to_close, close_obj{o, nil})
 				case "endobj":
 					objc = obj{obj_ind{}, line_index + 1, col + 1 + before_token_len}
 					oc := obj_to_close[len(obj_to_close)-1]
@@ -845,7 +844,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					obj_to_close[len(obj_to_close)-1].childs = childs
 				case "beginbfchar", "beginbfrange", "begincodespacerange":
 					obj_to_close[len(obj_to_close)-1].childs, _ = Pop(obj_to_close[len(obj_to_close)-1].childs)
-					obj_to_close = append(obj_to_close, close_obj{obj{token, line_index + 1, col + 1},nil})
+					obj_to_close = append(obj_to_close, close_obj{obj{token, line_index + 1, col + 1}, nil})
 				case "begin":
 					childs, o_res := Pop(obj_to_close[len(obj_to_close)-1].childs)
 					key, ok := o_res.Type.(string)
@@ -877,7 +876,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 							log.Print("ERROR:begin findresource  token not a obj_named")
 							return result, errors.New("ERROR:begin findresource token not a obj_named")
 						}
-						obj_to_close = append(obj_to_close, close_obj{obj{obj_resources{}, line_index + 1, col + 1},nil})
+						obj_to_close = append(obj_to_close, close_obj{obj{obj_resources{}, line_index + 1, col + 1}, nil})
 					default:
 						log.Printf("ERROR:begin token unkown %s\n", key)
 						return result, errors.New("ERROR:begin findresource token not a obj_named")
@@ -1017,7 +1016,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					//- null obj
 					obj_to_close = AppendChild(obj_to_close, obj{obj_null(nil), line_index + 1, col + 1 + before_token_len})
 				case "xref":
-					obj_to_close = append(obj_to_close, close_obj{obj{obj_xref{}, line_index + 1, col + 1 + before_token_len},nil})
+					obj_to_close = append(obj_to_close, close_obj{obj{obj_xref{}, line_index + 1, col + 1 + before_token_len}, nil})
 				case "trailer", "startxref":
 					// PDF operators
 					// for more information look at lib/pdf/operator.go
@@ -1054,7 +1053,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 						break
 					}
 				case "BI":
-					obj_to_close = append(obj_to_close, close_obj{obj{obj_bi{}, 0, 0},nil})
+					obj_to_close = append(obj_to_close, close_obj{obj{obj_bi{}, 0, 0}, nil})
 				case "ID":
 					// NOTE(elias): inline iamge. It is analogus to an obj_stream with BI ID EI.
 					// This will most likely be a source o problems later…
@@ -1174,7 +1173,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 					Type = string(t)
 				}
 				if ok_length && len(ind.stream.decoded_content) == 0 {
-					if len(ind.stream.encoded_content) > 0 && string(t) != "Metadata" {
+					if len(ind.stream.encoded_content) > 0 && Type != "Metadata" {
 						str := ind.stream.encoded_content
 						if int(length) != len(str) {
 							log.Fatalln("failed to get id for delayed stream decode; length mismatch")

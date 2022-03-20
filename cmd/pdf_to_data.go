@@ -89,7 +89,7 @@ func main() {
 			os.Stderr.WriteString(progname)
 			if prev_arg == "-f" {
 				filepath = append(filepath, os.Args[i])
-        continue
+				continue
 			}
 			spaces := len(progname)
 			for j, o := range os.Args[1:] {
