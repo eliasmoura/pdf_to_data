@@ -6,6 +6,29 @@ This is a toy project to learn how to program in the go language.
 
 `pdf_to_data` will take a pdf file and a convert its content to a machine parsable (cli FS style) format based of a `query` like [jq](https://stedolan.github.io/jq).
 
+## Examples
+### List texts
+The command bellow list all the contiguous text found in the document.
+
+```sh
+pdf_to_data -f myfile.pdf -list
+```
+
+### Query for a section
+Query allow to show specific sections of the document.
+
+```sh
+pdf_to_data -f myfile.pdf -query '@"START TEXT"+1[4@#200]
+```
+
+## Query syntax
+- `@` set the index for the specified:
+  - `"text"` match the text.
+  - `#123` match the index.
+- `+1` increment the index by the specified number.
+- `[2]` indicate the number of elements to be printed per line.
+
+
 ## References:
 
 - [Adobe PDF Reference](https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/pdf_reference_archives/PDFReference.pdf)
