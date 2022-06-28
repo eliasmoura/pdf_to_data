@@ -173,7 +173,7 @@ func get_token(txt []byte, byte ...interface{}) (string, int) {
 	return string(txt), size
 }
 
-func read_strl(txt []byte) (string, int) {
+func read_strl(txt []byte) (obj_strl, int) {
 	to_balance := 1
 	for i := range txt {
 		if txt[i] == ')' {
@@ -185,14 +185,14 @@ func read_strl(txt []byte) (string, int) {
 			}
 			to_balance--
 			if i == 0 {
-				return string(txt[0]), to_balance
+				return obj_strl(""), to_balance
 			}
-			return string(txt[0:i]), to_balance
+			return obj_strl(txt[0:i]), to_balance
 		} else if txt[i] == '(' && i-1 >= 0 && txt[i-1] != '\\' {
 			to_balance++
 		}
 	}
-	return string(txt), to_balance
+	return obj_strl(txt), to_balance
 }
 
 func read_strh(txt []byte) (string, error) {
@@ -364,20 +364,18 @@ func read_until_EI(txt []byte) (int, error) {
 	return 0, errors.New("Coulds not find `endstream`")
 }
 
-func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, error) {
+func Parse(doc []byte, color_space obj_dict, resources []obj_resources) (pdf, error) {
 	var obj_to_close []close_obj
-	line_index := 0
-	var lines []line
-	bread := 0
 	var result pdf
-	result.color_space = color_spacce
-	var start, end int
+	result.color_space = color_space
 	fontfile := make([]struct {
 		id       obj_int
 		mod_id   obj_int
 		metadata map[obj_named]obj
 	},
 		0, 10)
+	var start, end int
+	var lines []line
 	for end > -1 {
 		var tend int
 		tend = bytes.IndexByte(doc[start:], '\n')
@@ -391,8 +389,10 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 		end = tend
 	}
 
-	var to_parse []obj_int // objs that has streams to be parsed.
+	var to_parse []obj_int // objs that have the streams to be parsed.
 	dict_begin := false    // for CID resources dict begin
+	bread := 0
+	line_index := 0
 	for line_index < len(lines) {
 		col := 0
 		line := doc[lines[line_index].start:lines[line_index].end]
@@ -485,21 +485,16 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 				case "(":
 					//- strings []u8. Empty strings is valid:
 					//  (liteal) may contem new lines,(),*,!,&,^,%,\),\\…\ddd(octal up to 3 digit)
-					str := obj_strl("")
-					o := obj{str, line_index + 1, col + 1 + before_token_len}
-
-					var balance int
 					col++
-					token, balance = read_strl(doc[lines[line_index].start+col:])
+					strl, balance := read_strl(doc[lines[line_index].start+col:])
+					token = string(strl)
 					token_ := strings.ReplaceAll(token, "\\(", "(")
 					token_ = strings.ReplaceAll(token_, "\\)", ")")
 					token_ = strings.ReplaceAll(token_, "\\\\", "\\")
-					str = obj_strl(token_)
-					o.Type = str
+					o := obj{obj_strl(token_), line_index + 1, col + 1 + before_token_len}
 					if balance > 0 {
 						return result, errors.New(fmt.Sprintf("ERROR:%d:%d expected token `)`, found EOF\n", o.line, o.col))
 					}
-					col++
 					if len(obj_to_close) > 0 {
 						obj_to_close = AppendChild(obj_to_close, o)
 					} else {
@@ -545,7 +540,7 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 							}
 							dict[key] = childs[i+1]
 						} else {
-							log.Printf("ERROR:%d:%d key `%v` should be obj_named???\n", o_key.line, o_key.col, o_key)
+							log.Printf("ERROR:%d:%d key `[%T]%v` should be obj_named???\n", o_key.line, o_key.col, o_key.Type, o_key.Type)
 						}
 					}
 					if is_font_metadata {
@@ -607,6 +602,9 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 							shex := make([]int64, 0, size)
 							for it := 0; it < len(strh); it += 4 {
 								char, err := strconv.ParseInt(strh[it:it+4], 16, 32)
+								if err != nil {
+									log.Printf("ERRO:%d:%d Cound not Parse `%s` in hexadecimal string: %s\n", line_index+1, col+1+it, strh[it:it+1], strh)
+								}
 								found := false
 								for _, res := range resources {
 									if c, ok := res.CodeSpace.bfchars[obj_codechar(char)]; ok {
@@ -636,9 +634,6 @@ func Parse(doc []byte, color_spacce obj_dict, resources []obj_resources) (pdf, e
 								} else {
 									shex = append(shex, char>>16)
 									shex = append(shex, char&0x0000ffff)
-								}
-								if err != nil {
-									log.Printf("ERRO:%d:%d Cound not Parse `%s` in hexadecimal string: %s\n", line_index+1, col+1+it, strh[it:it+1], strh)
 								}
 							}
 							s := make([]string, len(shex))
