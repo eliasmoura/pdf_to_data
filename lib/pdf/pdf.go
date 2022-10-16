@@ -388,6 +388,37 @@ func Parse(doc []byte, color_space obj_dict, resources []obj_resources) (pdf, er
 		start = end + 1
 		end = tend
 	}
+	lines = lines[:len(lines)-1]
+	// NOTE(kotto): The reference manual says we should start parsing from the end of the PDF.
+	// First read the %%EOF; then startxref to find the xref offset from the begining; read the trailer section to find out if the file is encrypted; if it is… Good luck?
+	_index := lines[len(lines)-1].start
+	_end := lines[len(lines)-1].end
+	if bytes.Compare(doc[_index:_end], []byte("%%EOF")) != 0 {
+		// TODO(kotto): figure out how to handle the recursion that is being used to parsing the streams
+		//return result, errors.New(fmt.Sprintf("Last line of the PDF document is not `%%%%EOF`, found: %v", doc[_index:]))
+	} else {
+		_index = lines[len(lines)-3].start
+		_end = lines[len(lines)-3].end
+		if bytes.Compare(doc[_index:_end], []byte("startxref")) != 0 {
+			return result, errors.New(fmt.Sprintf("Third last line of the PDF document is not `startxref`, found: %v", doc[_index:]))
+		}
+		_index = lines[len(lines)-2].start
+		_end = lines[len(lines)-2].end
+		xref_offset, err := strconv.ParseInt(string(doc[_index:_end]), 10, 64)
+		if err != nil {
+			return result, errors.New(fmt.Sprintf("Second last line of the PDF document is not `<interger>`, found: %v", doc[_index:]))
+		}
+		var xref_start int
+		for i := 0; i < len(lines); i++ {
+			if lines[i].start == int(xref_offset) {
+				xref_start = i
+				break
+			}
+		}
+		for i := xref_start; i < len(lines)-3; i++ {
+			log.Println(string(doc[lines[i].start:lines[i].end]))
+		}
+	}
 
 	var to_parse []obj_int // objs that have the streams to be parsed.
 	dict_begin := false    // for CID resources dict begin
@@ -1175,7 +1206,7 @@ func Parse(doc []byte, color_space obj_dict, resources []obj_resources) (pdf, er
 						}
 						r, err := zlib.NewReader(bytes.NewReader(str))
 						if err != nil {
-							return result, errors.New(fmt.Sprintf("failled to decode stream of obj %d:%d %v", ind.id, ind.mod_id, err))
+							return result, errors.New(fmt.Sprintf("ERROR:%d:%d Failled to decode stream of obj %d:%d %v", o_ind.line, o_ind.col, ind.id, ind.mod_id, err))
 						}
 						ind.stream.decoded_content, err = io.ReadAll(r)
 						if err != nil {

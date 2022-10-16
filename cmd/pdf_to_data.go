@@ -58,6 +58,7 @@ func main() {
 	var arg string
 	var cmd Cmd
 	var prev_arg string
+	var quiet bool = false
 	for ; i < len(os.Args); i++ {
 		switch os.Args[i] {
 		case "-f":
@@ -82,6 +83,8 @@ func main() {
 			i++
 			arg = os.Args[i]
 			prev_arg = "-format"
+		case "-quiet", "-q":
+			quiet = true
 		case "-help", "-h", "--help":
 			usage(progname)
 			os.Exit(0)
@@ -92,20 +95,27 @@ func main() {
 				continue
 			}
 			spaces := len(progname)
+			var found_err_opt bool = false
 			for j, o := range os.Args[1:] {
 				var err_b, err_e Cmd_colors
 				if j == i-1 {
 					err_b = red
 					err_e = normal
+					found_err_opt = true
+					spaces += len(o)
 				}
 				os.Stderr.WriteString(fmt.Sprintf("%s%s%s", err_b, o, err_e))
 				if j < len(os.Args[1:]) {
 					os.Stderr.WriteString(" ")
+				} else {
+					os.Stderr.WriteString(fmt.Sprintf("]["))
 				}
-				spaces += len(o)
+				if !found_err_opt {
+					spaces += len(o)
+				}
 			}
 			spaces -= len(os.Args[i])
-			os.Stderr.WriteString(fmt.Sprintf("\n%*s%s^^^%s", spaces, "", red, normal))
+			os.Stderr.WriteString(fmt.Sprintf("\n%*s %s^^^%s", spaces, "", red, normal))
 			os.Stderr.WriteString(fmt.Sprintf("Unkwon option %s\n", os.Args[i]))
 			usage(progname)
 			os.Exit(1)
@@ -124,14 +134,16 @@ func main() {
 		}
 		pdf, err := pdf_parser.Parse(file, nil, nil)
 		if err != nil {
-			fmt.Print(err)
-			os.Exit(1)
+			log.Print(filepath)
+			log.Fatalln(err)
 		}
 
 		switch cmd {
 		case list:
-			for j, v := range pdf.Text {
-				fmt.Printf("%4d: [%s]\n", j, v)
+			if !quiet {
+				for j, v := range pdf.Text {
+					fmt.Printf("%4d: [%s]\n", j, v)
+				}
 			}
 		case cmd_query:
 			q, err := query.ParseQuery(arg)
